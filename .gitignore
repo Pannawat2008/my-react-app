@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Google Drive sync temp directories
+.tmp.driveupload/
+
+# Windows system files
+desktop.ini
+
