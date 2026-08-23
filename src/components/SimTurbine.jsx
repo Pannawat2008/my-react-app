@@ -1,4 +1,4 @@
-import React, { useMemo, useRef } from 'react';
+import { useMemo, useRef, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import Blade from './Blade';
@@ -6,130 +6,153 @@ import { getHeatmapColor } from '../utils/heatmapColors';
 import { useGearParams, computeGearStages } from '../hooks/useGearParams';
 import { GearStage } from './GearView';
 import { solveBEM } from '../engine/bem';
+import { useSim } from '../context/SimContext';
+import { useBlade } from '../context/BladeContext';
+import { useGear } from '../context/GearContext';
 
-export default function SimTurbine({ segments, bemResults, rpm, heatmapProperty, showSpar, bladeParams, simPlaying, windSpeed, bladePitch = 0, timeScale = 1.0, showParticles = true, tunnelScale = 2.5, gearStore, generatorLoad, loadModel, constantLoadGcm, ratedPowerW, ratedRpm, setLiveRpm, setLiveElectricalPowerW }) {
+export default function SimTurbine() {
+  const { bladeParams, segments } = useBlade();
+  const {
+    simPlaying,
+    windSpeed,
+    bladePitch,
+    timeScale,
+    showParticles,
+    tunnelScale,
+    heatmapProperty,
+    loadModel,
+    generatorLoad,
+    constantLoadGcm,
+    ratedPowerW,
+    ratedRpm,
+    liveRpm,
+    setLiveRpm,
+    setLiveElectricalPowerW,
+    setLiveAeroTorqueNm,
+    setLiveThrustN,
+  } = useSim();
+
+  const { gearStore } = useGear();
+
   const rotorRef = useRef();
   const currentRotorAngle = useRef(0);
   const gearRatioRef = useRef(1.0);
 
   const currentRpmRef = useRef(0.1);
   const lastStateUpdateTime = useRef(0);
+  const lastBemTime = useRef(0);
+  const cachedAeroTorque = useRef(0);
+  const cachedThrust = useRef(0);
+  const cachedBemResults = useRef(null);
 
-  // Rotate the turbine based on dynamically simulated RPM
+  const R = bladeParams.radiusMm / 1000;
+  const B = bladeParams.numBlades || 3;
+
+  // Real-time Physics integration loop (60 / 120 fps)
   useFrame((state, delta) => {
-    if (rotorRef.current && simPlaying) {
-      const scaledDelta = delta * timeScale;
-      
-      const R = bladeParams.radiusMm / 1000;
-      const B = bladeParams.numBlades || 3;
-      
-      // Calculate Aerodynamic Torque at current physical RPM
-      const result = solveBEM(segments, windSpeed, currentRpmRef.current, R, B, bladePitch);
-      const T_aero = result.totalTorque;
-      
-      // Calculate Generator Load Torque
-      const omega = (currentRpmRef.current * Math.PI) / 30;
-      const gearRatio = gearRatioRef.current || 1.0;
-      const omegaGen = omega * gearRatio;
-      
-      let T_load = 0;
-      let P_elec = 0;
-      const coggingTorqueNm = constantLoadGcm * 0.0000980665;
-      
-      if (loadModel === 'Constant Friction') {
-        // Friction from the generator is reflected back to the rotor multiplied by gear ratio
-        T_load = coggingTorqueNm * gearRatio;
-        // If the turbine is completely stopped, friction matches torque up to the limit
-        if (omega < 0.01 && T_aero < T_load) {
-          T_load = T_aero; 
-        }
-      } else if (loadModel === 'Realistic DC Motor') {
-        // T_total = T_cogging + T_electrical
-        // T_electrical = (P_rated / omega_rated^2) * omegaGen
-        const ratedOmega = (ratedRpm * Math.PI) / 30;
-        const T_elec = (ratedPowerW / (ratedOmega * ratedOmega)) * omegaGen;
-        P_elec = T_elec * omegaGen; // Electrical Power generated
-        
-        // Generator torque is reflected back through the gearbox
-        T_load = (coggingTorqueNm + T_elec) * gearRatio;
-        if (omega < 0.01 && T_aero < T_load) {
-          T_load = T_aero; // Static friction prevents starting if wind is too weak
-          P_elec = 0;
-        }
-      } else {
-        // Simple (%) Model
-        const genScale = Math.pow(R, 3) * 50; 
-        const T_elec = (generatorLoad / 100) * genScale * omegaGen;
-        P_elec = T_elec * omegaGen;
-        T_load = T_elec * gearRatio;
-      }
-      
-      const NetTorque = T_aero - T_load;
-      
-      // Calculate Rotor Inertia (rough estimate: solid blades + hub)
-      const massPerBlade = 5 * R; // 5kg per meter
-      const inertia = B * (massPerBlade * R * R / 3) + (R * 2.0);
-      
-      // Angular acceleration (alpha)
-      const alpha = NetTorque / inertia;
-      
-      // Integrate omega
-      let nextOmega = omega + alpha * scaledDelta;
-      if (nextOmega < 0) nextOmega = 0; // Prevent spinning backwards
-      
-      // Update RPM
-      currentRpmRef.current = Math.max(0.1, (nextOmega * 30) / Math.PI);
-      
-      // Update Visual Rotation (Clockwise is negative Z in our 3D space)
-      rotorRef.current.rotation.z -= nextOmega * scaledDelta;
-      currentRotorAngle.current = rotorRef.current.rotation.z;
+    if (!rotorRef.current || !simPlaying) return;
 
-      // Throttle React state updates to 10Hz to prevent UI lag
-      if (state.clock.elapsedTime - lastStateUpdateTime.current > 0.1) {
-        lastStateUpdateTime.current = state.clock.elapsedTime;
-        if (setLiveRpm) {
-          setLiveRpm(currentRpmRef.current);
-        }
-        if (setLiveElectricalPowerW) {
-          setLiveElectricalPowerW(P_elec);
-        }
+    const scaledDelta = Math.min(delta, 0.05) * timeScale;
+    const now = state.clock.elapsedTime;
+
+    // Run heavy BEM at 15Hz for smooth 60fps frame rate without stutter
+    if (now - lastBemTime.current > 0.065 || !cachedBemResults.current) {
+      lastBemTime.current = now;
+      const res = solveBEM(segments, windSpeed, currentRpmRef.current, R, B, bladePitch);
+      cachedBemResults.current = res;
+      cachedAeroTorque.current = res.totalTorque;
+      cachedThrust.current = res.totalThrust;
+    }
+
+    const T_aero = cachedAeroTorque.current;
+    const omega = (currentRpmRef.current * Math.PI) / 30; // rad/s
+    const gearRatio = gearRatioRef.current || 1.0;
+    const omegaGen = omega * gearRatio;
+
+    let T_load;
+    let P_elec = 0;
+    const coggingTorqueNm = (constantLoadGcm || 0) * 0.0000980665;
+
+    if (loadModel === 'Constant Friction') {
+      T_load = coggingTorqueNm * gearRatio;
+      if (omega < 0.02 && T_aero < T_load) {
+        T_load = T_aero;
       }
+    } else if (loadModel === 'Realistic DC Motor') {
+      const ratedOmega = (ratedRpm * Math.PI) / 30;
+      const T_elec = ratedOmega > 0 ? (ratedPowerW / (ratedOmega * ratedOmega)) * omegaGen : 0;
+      P_elec = T_elec * omegaGen;
+      T_load = (coggingTorqueNm + T_elec) * gearRatio;
+
+      if (omega < 0.02 && T_aero < T_load) {
+        T_load = T_aero;
+        P_elec = 0;
+      }
+    } else {
+      const genScale = Math.pow(R, 3) * 45;
+      const T_elec = (generatorLoad / 100) * genScale * (omegaGen / 20);
+      P_elec = T_elec * omegaGen;
+      T_load = T_elec * gearRatio;
+    }
+
+    const netTorque = T_aero - T_load;
+    const massPerBlade = 4.5 * R;
+    const inertia = Math.max(0.1, B * (massPerBlade * R * R * 0.33) + R * 1.5);
+    const alpha = netTorque / inertia;
+
+    let nextOmega = omega + alpha * scaledDelta;
+    if (nextOmega < 0) nextOmega = 0;
+
+    currentRpmRef.current = Math.max(0.05, (nextOmega * 30) / Math.PI);
+
+    // Visual rotation around Z axis
+    rotorRef.current.rotation.z -= nextOmega * scaledDelta;
+    currentRotorAngle.current = rotorRef.current.rotation.z;
+
+    // Broadcast UI telemetry at 10Hz
+    if (now - lastStateUpdateTime.current > 0.1) {
+      lastStateUpdateTime.current = now;
+      setLiveRpm(currentRpmRef.current);
+      setLiveElectricalPowerW(P_elec);
+      setLiveAeroTorqueNm(T_aero);
+      setLiveThrustN(cachedThrust.current);
     }
   });
 
+  // Dynamic Heatmap colors
   const segmentColors = useMemo(() => {
-    if (!heatmapProperty || heatmapProperty === 'None' || !bemResults || !bemResults.segments) {
-      return null; // Return null so Blade uses default color
+    if (!heatmapProperty || heatmapProperty === 'None' || !segments || segments.length === 0) {
+      return null;
     }
 
-    // Determine min and max for normalization
-    let minVal = Infinity;
-    let maxVal = -Infinity;
-    
-    // Determine which property to read
     const propKeyMap = {
       'Torque': 'dQ',
       'Lift Coeff': 'cl',
       'Drag Coeff': 'cd',
-      'Angle of Attack': 'alphaDeg'
+      'Angle of Attack': 'alphaDeg',
+      'Induction': 'a',
     };
-    
+
     const key = propKeyMap[heatmapProperty];
     if (!key) return null;
 
-    bemResults.segments.forEach(seg => {
-      if (seg[key] < minVal) minVal = seg[key];
-      if (seg[key] > maxVal) maxVal = seg[key];
+    const res = solveBEM(segments, windSpeed, liveRpm || 0.1, R, B, bladePitch);
+    const segs = res?.segments || [];
+    let minVal = Infinity;
+    let maxVal = -Infinity;
+
+    segs.forEach((s) => {
+      if (s[key] < minVal) minVal = s[key];
+      if (s[key] > maxVal) maxVal = s[key];
     });
 
-    const range = maxVal - minVal;
-    
-    return bemResults.segments.map(seg => {
-      const val = seg[key];
-      const normalized = range === 0 ? 0.5 : (val - minVal) / range;
-      return getHeatmapColor(normalized);
+    const range = maxVal - minVal || 1;
+
+    return segs.map((s) => {
+      const norm = (s[key] - minVal) / range;
+      return getHeatmapColor(norm);
     });
-  }, [bemResults, heatmapProperty]);
+  }, [heatmapProperty, segments, windSpeed, liveRpm, R, B, bladePitch]);
 
   const numBlades = bladeParams.numBlades || 3;
   const blades = [];
@@ -137,9 +160,11 @@ export default function SimTurbine({ segments, bemResults, rpm, heatmapProperty,
     const angle = (i * 2 * Math.PI) / numBlades;
     blades.push(
       <group key={i} rotation={[0, 0, angle]}>
-        <Blade 
-          segments={segments} 
-          showSpar={showSpar}
+        <Blade
+          segments={segments}
+          showSpar={false}
+          viewMode="solid"
+          showDimensions={false}
           carbonRodDia={bladeParams.carbonRodDia}
           carbonRodDepthPct={bladeParams.carbonRodDepthPct}
           leRadiusMod={bladeParams.leRadiusMod}
@@ -153,55 +178,77 @@ export default function SimTurbine({ segments, bemResults, rpm, heatmapProperty,
     );
   }
 
-  const R = bladeParams.radiusMm / 1000;
-  const hubRadius = Math.max(0.05, bladeParams.root.chordMm / 1000);
-  const hubDepth = hubRadius * 1.5;
-  const tunnelRadius = R * tunnelScale;
-  const tunnelDepth = tunnelRadius * 2.0;
+  const hubRadius = Math.max(0.06, (bladeParams.root.chordMm / 1000) * 0.9);
+  const hubDepth = hubRadius * 1.4;
+  const tunnelRadius = R * (tunnelScale || 2.2);
+  const tunnelDepth = tunnelRadius * 2.2;
+  const towerHeight = R * 1.6;
+  const towerRadiusBottom = R * 0.08;
+  const towerRadiusTop = R * 0.05;
 
   return (
     <group>
-      {/* Stationary Environment */}
-      {/* Wind Tunnel */}
+      {/* ── 3D Turbine Nacelle & Tower ── */}
+      <group position={[0, 0, hubDepth * 0.8]}>
+        {/* Streamlined Nacelle Housing */}
+        <mesh position={[0, 0, R * 0.15]} rotation={[Math.PI / 2, 0, 0]}>
+          <capsuleGeometry args={[hubRadius * 0.85, R * 0.35, 16, 24]} />
+          <meshStandardMaterial color="#475569" metalness={0.7} roughness={0.35} />
+        </mesh>
+
+        {/* Tubular Steel Turbine Tower */}
+        <mesh position={[0, -towerHeight / 2, R * 0.15]}>
+          <cylinderGeometry args={[towerRadiusTop, towerRadiusBottom, towerHeight, 32]} />
+          <meshStandardMaterial color="#334155" metalness={0.6} roughness={0.4} />
+        </mesh>
+      </group>
+
+      {/* Aerodynamic Wind Tunnel Shell */}
       <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
         <cylinderGeometry args={[tunnelRadius, tunnelRadius, tunnelDepth, 64, 1, true]} />
-        <meshPhysicalMaterial color="#aaddff" transparent={true} opacity={0.15} side={THREE.DoubleSide} depthWrite={false} roughness={0.1} transmission={0.9} />
+        <meshPhysicalMaterial
+          color="#38bdf8"
+          transparent={true}
+          opacity={0.08}
+          side={THREE.DoubleSide}
+          depthWrite={false}
+          roughness={0.1}
+          transmission={0.9}
+        />
       </mesh>
 
-      {/* Chaotic Turbulent Smoke Physics */}
+      {/* Chaotic Smoke Streamlines & Helical Tip Vortices */}
       {showParticles && (
-        <TurbulentSmoke 
-          R={R} 
+        <TurbulentSmoke
+          R={R}
           tunnelRadius={tunnelRadius}
-          tunnelDepth={tunnelDepth} 
-          simPlaying={simPlaying} 
-          windSpeed={windSpeed} 
-          rpm={rpm} 
-          bemSegments={bemResults?.segments} 
-          timeScale={timeScale} 
-          currentRotorAngle={currentRotorAngle} 
-          numBlades={bladeParams.numBlades || 3} 
+          tunnelDepth={tunnelDepth}
+          simPlaying={simPlaying}
+          windSpeed={windSpeed}
+          rpm={liveRpm}
+          timeScale={timeScale}
+          currentRotorAngle={currentRotorAngle}
+          numBlades={numBlades}
           bladePitch={bladePitch}
         />
       )}
 
-      {/* Rotating Rotor */}
+      {/* Rotating Turbine Rotor */}
       <group ref={rotorRef}>
-        {/* Hub */}
+        {/* Hub Nose Cone */}
         <mesh rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[hubRadius, hubRadius, hubDepth, 32]} />
-          <meshStandardMaterial color="#444444" metalness={0.9} roughness={0.4} />
+          <cylinderGeometry args={[hubRadius * 0.3, hubRadius, hubDepth, 32]} />
+          <meshStandardMaterial color="#1e293b" metalness={0.9} roughness={0.25} />
         </mesh>
-        
-        {/* Dynamic Blades */}
+
         {blades}
       </group>
-      
-      {/* Live Gearbox Integration */}
-      <SimGearbox 
-        gearStore={gearStore} 
-        currentRotorAngle={currentRotorAngle} 
-        position={[0, 0, hubDepth / 2 + 0.02]} 
+
+      {/* Live Drivetrain Gearbox */}
+      <SimGearbox
+        gearStore={gearStore}
+        currentRotorAngle={currentRotorAngle}
+        position={[0, 0, hubDepth / 2 + 0.04]}
         gearRatioRef={gearRatioRef}
       />
     </group>
@@ -209,11 +256,13 @@ export default function SimTurbine({ segments, bemResults, rpm, heatmapProperty,
 }
 
 function SimGearbox({ gearStore, currentRotorAngle, position, gearRatioRef }) {
-  if (!gearStore) return null;
   const levaParams = useGearParams(gearStore);
-  const stagesData = useMemo(() => computeGearStages(levaParams), [levaParams]);
-  
-  React.useEffect(() => {
+  const stagesData = useMemo(() => {
+    if (!gearStore) return [];
+    return computeGearStages(levaParams);
+  }, [gearStore, levaParams]);
+
+  useEffect(() => {
     if (stagesData && stagesData.length > 0 && gearRatioRef) {
       const lastStage = stagesData[stagesData.length - 1];
       gearRatioRef.current = Math.abs(lastStage.speedRatio);
@@ -222,16 +271,15 @@ function SimGearbox({ gearStore, currentRotorAngle, position, gearRatioRef }) {
     }
   }, [stagesData, gearRatioRef]);
 
-  if (stagesData.length === 0) return null;
-  
+  if (!gearStore || stagesData.length === 0) return null;
+
   return (
-    // Scale down from mm to meters
     <group position={position} scale={[0.001, 0.001, 0.001]}>
       {stagesData.map((stage, idx) => (
-        <GearStage 
-          key={idx} 
-          params={stage.params} 
-          position={stage.position} 
+        <GearStage
+          key={idx}
+          params={stage.params}
+          position={stage.position}
           speedRatio={stage.speedRatio}
           rotationOffset={stage.rotationOffset}
           animate={false}
@@ -242,200 +290,187 @@ function SimGearbox({ gearStore, currentRotorAngle, position, gearRatioRef }) {
   );
 }
 
-function TurbulentSmoke({ R, tunnelRadius, tunnelDepth, simPlaying, windSpeed, rpm, bemSegments, timeScale = 1.0, currentRotorAngle, numBlades, bladePitch }) {
-  const meshRef = useRef();
-  const count = 3000;
-  
-  const dummy = useMemo(() => new THREE.Object3D(), []);
-  
-  // Store physical state in flat typed arrays for massive performance
-  const [positions, velocities] = useMemo(() => {
-    const pos = new Float32Array(count * 3);
-    const vel = new Float32Array(count * 3);
-    
-    for (let i = 0; i < count; i++) {
-      // Spawn evenly in the front half of the tunnel
-      const r = Math.random() * tunnelRadius * 0.95;
-      const theta = Math.random() * Math.PI * 2;
-      pos[i * 3 + 0] = Math.cos(theta) * r;
-      pos[i * 3 + 1] = Math.sin(theta) * r;
-      pos[i * 3 + 2] = (Math.random() - 1.0) * (tunnelDepth / 2); // -tunnelDepth/2 to 0
-      
-      vel[i * 3 + 0] = 0;
-      vel[i * 3 + 1] = 0;
-      vel[i * 3 + 2] = windSpeed;
-    }
-    return [pos, vel];
-  }, [count, R, tunnelDepth, windSpeed]);
+function createInitialParticles(count, R, tunnelRadius, tunnelDepth, windSpeed) {
+  const pos = new Float32Array(count * 3);
+  const vel = new Float32Array(count * 3);
+  const types = new Uint8Array(count); // 0 = ambient smoke, 1 = tip vortex particle
 
-  const omega = (rpm * Math.PI) / 30; // radians per sec
+  for (let i = 0; i < count; i++) {
+    const isVortex = i % 4 === 0;
+    types[i] = isVortex ? 1 : 0;
+
+    const pseudo1 = ((i * 1337 + 7) % 1000) / 1000;
+    const pseudo2 = ((i * 7919 + 13) % 1000) / 1000;
+    const pseudo3 = ((i * 4973 + 23) % 1000) / 1000;
+
+    const r = isVortex ? R * (0.95 + pseudo1 * 0.1) : pseudo1 * tunnelRadius * 0.95;
+    const theta = pseudo2 * Math.PI * 2;
+    pos[i * 3 + 0] = Math.cos(theta) * r;
+    pos[i * 3 + 1] = Math.sin(theta) * r;
+    pos[i * 3 + 2] = (pseudo3 - 1.0) * (tunnelDepth / 2);
+
+    vel[i * 3 + 0] = 0;
+    vel[i * 3 + 1] = 0;
+    vel[i * 3 + 2] = windSpeed;
+  }
+  return { positions: pos, velocities: vel, types };
+}
+
+function TurbulentSmoke({
+  R,
+  tunnelRadius,
+  tunnelDepth,
+  simPlaying,
+  windSpeed,
+  rpm,
+  timeScale = 1.0,
+  currentRotorAngle,
+  numBlades,
+  bladePitch,
+}) {
+  const meshRef = useRef();
+  const count = 4800;
+  const dummyRef = useRef(new THREE.Object3D());
+  const dummy = dummyRef.current;
+  const particlesRef = useRef(null);
+  if (particlesRef.current == null) {
+    particlesRef.current = createInitialParticles(count, R, tunnelRadius, tunnelDepth, windSpeed);
+  }
 
   useFrame((state, delta) => {
-    if (!simPlaying || !meshRef.current) return;
-    
-    // Safety cap on delta to prevent explosive physics drops
+    if (!simPlaying || !meshRef.current || !particlesRef.current) return;
+    const { positions, velocities, types } = particlesRef.current;
+
     const safeDelta = Math.min(delta, 0.05);
     const scaledDelta = safeDelta * timeScale;
     const t = state.clock.elapsedTime * timeScale;
-    
+
     const B = numBlades;
     const rotorAngle = currentRotorAngle.current;
-    
-    // Pre-calculate current blade angles for hit detection
+    const omega = (rpm * Math.PI) / 30;
+
     const bladeAngles = [];
     for (let i = 0; i < B; i++) {
-      let ba = (rotorAngle + i * (2 * Math.PI / B)) % (2 * Math.PI);
+      let ba = (rotorAngle + i * ((2 * Math.PI) / B)) % (2 * Math.PI);
       if (ba < 0) ba += 2 * Math.PI;
       bladeAngles.push(ba);
     }
-    
+
     const colorObj = new THREE.Color();
     const vecZ = new THREE.Vector3(0, 0, 1);
     const vecVel = new THREE.Vector3();
-    
+
     for (let i = 0; i < count; i++) {
       const idx = i * 3;
       let x = positions[idx + 0];
       let y = positions[idx + 1];
       let z = positions[idx + 2];
-      
+
       let vx = velocities[idx + 0];
       let vy = velocities[idx + 1];
       let vz = velocities[idx + 2];
-      
-      // Turbulence (Curl noise approximation)
-      // Engages as the particle approaches and passes the rotor
-      if (z > -R * 0.5) {
-        // Pseudo-random chaotic curl fields
-        const curlX = Math.sin(y * 3 + t * 4) * 0.15 * windSpeed;
-        const curlY = Math.cos(x * 3 + t * 5) * 0.15 * windSpeed;
+
+      // Swirling aerodynamic wake turbulence behind rotor
+      if (z > -R * 0.3) {
+        const curlX = Math.sin(y * 3 + t * 4) * 0.18 * windSpeed;
+        const curlY = Math.cos(x * 3 + t * 5) * 0.18 * windSpeed;
         vx += (curlX - vx) * 3 * scaledDelta;
         vy += (curlY - vy) * 3 * scaledDelta;
       }
-      
-      // Global wind tunnel acceleration
+
       vz += (windSpeed - vz) * 0.5 * scaledDelta;
-      
-      // Particle Polar Coordinates
+
       const rp = Math.sqrt(x * x + y * y);
       let tp = Math.atan2(y, x);
       if (tp < 0) tp += 2 * Math.PI;
-      
-      // 💥 BLADE COLLISION DETECTION 💥
-      // Is particle passing through the rotor disk?
-      if (z > -0.1 && z < 0.1 && rp < R) {
-        // Angular thickness of a blade (simplified collision box)
-        const bladeThickness = 0.15; 
-        
+
+      // Helical Tip Vortex induction
+      if (types[i] === 1 && z > 0) {
+        const vortexSwirl = (omega * R * 0.8) / Math.max(0.5, z * 0.5);
+        vx += -Math.sin(tp) * vortexSwirl * scaledDelta;
+        vy += Math.cos(tp) * vortexSwirl * scaledDelta;
+      }
+
+      // Blade contact impulse and tangential swirl
+      if (z > -0.12 && z < 0.12 && rp < R) {
+        const bladeThickness = 0.2;
+
         for (let b = 0; b < B; b++) {
           let diff = Math.abs(tp - bladeAngles[b]);
           if (diff > Math.PI) diff = 2 * Math.PI - diff;
-          
+
           if (diff < bladeThickness) {
-            // WHACK! The particle was hit by the blade.
-            
-            // Find closest segment to get the aerodynamic twist
-            let closestSeg = bemSegments?.[0];
-            let minDiff = Infinity;
-            if (bemSegments) {
-              bemSegments.forEach(seg => {
-                const d = Math.abs(seg.r - rp);
-                if (d < minDiff) {
-                  minDiff = d;
-                  closestSeg = seg;
-                }
-              });
-            }
-            
-            const betaDeg = (closestSeg ? closestSeg.twistDeg : 0) + bladePitch;
-            const beta = (betaDeg * Math.PI) / 180;
-            
-            const vTangential = omega * rp; // How fast the blade is moving here
-            
-            // The blade ramps the air forward (Thrust)
+            const vTangential = omega * rp;
+            const beta = ((10 + bladePitch) * Math.PI) / 180;
+
             vz += vTangential * Math.sin(beta);
-            
-            // The blade drags the air sideways (Swirl)
             const swirlAmount = vTangential * Math.cos(beta);
-            
-            // Convert swirl (which pushes in direction of blade rotation) to XY vectors
-            // Rotor rotates -Z (clockwise). Swirl pushes air clockwise.
-            // Clockwise rotation of vector (x,y) -> (y, -x)
-            const swirlVx = y * swirlAmount * 0.5;
-            const swirlVy = -x * swirlAmount * 0.5;
-            
-            vx += swirlVx * scaledDelta;
-            vy += swirlVy * scaledDelta;
-            
-            // Violent scattering / Tip vortex generation
-            vx += (Math.random() - 0.5) * windSpeed;
-            vy += (Math.random() - 0.5) * windSpeed;
-            
-            // Push it safely through so it doesn't get hit twice
-            z = 0.11;
+
+            vx += y * swirlAmount * 0.5 * scaledDelta;
+            vy += -x * swirlAmount * 0.5 * scaledDelta;
+
+            z = 0.13;
             break;
           }
         }
       }
-      
-      // Apply Velocity
+
       x += vx * scaledDelta;
       y += vy * scaledDelta;
       z += vz * scaledDelta;
-      
-      // Boundary Wrapping: Reset particle to front of tunnel
-      if (z > tunnelDepth / 2 || rp > tunnelRadius * 1.2) {
+
+      // Wrap boundary
+      if (z > tunnelDepth / 2 || rp > tunnelRadius * 1.15) {
         z = -tunnelDepth / 2;
+        const isVortex = types[i] === 1;
+        const spawnR = isVortex ? R * (0.95 + Math.random() * 0.1) : Math.random() * tunnelRadius * 0.95;
         const theta = Math.random() * Math.PI * 2;
-        const spawnR = Math.random() * tunnelRadius * 0.95;
         x = Math.cos(theta) * spawnR;
         y = Math.sin(theta) * spawnR;
         vx = 0;
         vy = 0;
         vz = windSpeed;
       }
-      
-      // Save State
+
       positions[idx + 0] = x;
       positions[idx + 1] = y;
       positions[idx + 2] = z;
-      
+
       velocities[idx + 0] = vx;
       velocities[idx + 1] = vy;
       velocities[idx + 2] = vz;
-      
-      // Update InstancedMesh Matrix
+
       dummy.position.set(x, y, z);
-      
-      const vLen = Math.sqrt(vx*vx + vy*vy + vz*vz);
+      const vLen = Math.sqrt(vx * vx + vy * vy + vz * vz);
       if (vLen > 0.01) {
-        vecVel.set(vx/vLen, vy/vLen, vz/vLen);
+        vecVel.set(vx / vLen, vy / vLen, vz / vLen);
         dummy.quaternion.setFromUnitVectors(vecZ, vecVel);
       }
-      
-      // Make particles stretch based on their speed (motion blur effect)
-      dummy.scale.set(1, 1, Math.max(1, vLen / windSpeed * 2));
-      
+      dummy.scale.set(1, 1, Math.max(1, (vLen / Math.max(1, windSpeed)) * 2.2));
       dummy.updateMatrix();
       meshRef.current.setMatrixAt(i, dummy.matrix);
-      
-      // Update Color (Heatmap)
-      const vRatio = vLen / (windSpeed || 1);
-      // Red (fast) to Blue (slow)
-      const hue = Math.max(0, Math.min(240, (1 - vRatio) * 240));
-      colorObj.setHSL(hue / 360, 1.0, 0.5);
+
+      // Color coding: Tip vortex filaments are glowing cyan, stream particles are velocity gradient
+      if (types[i] === 1) {
+        colorObj.set('#38bdf8');
+      } else {
+        const vRatio = vLen / (windSpeed || 1);
+        const hue = Math.max(0, Math.min(240, (1 - vRatio) * 240));
+        colorObj.setHSL(hue / 360, 1.0, 0.5);
+      }
       meshRef.current.setColorAt(i, colorObj);
     }
-    
+
     meshRef.current.instanceMatrix.needsUpdate = true;
-    meshRef.current.instanceColor.needsUpdate = true;
+    if (meshRef.current.instanceColor) {
+      meshRef.current.instanceColor.needsUpdate = true;
+    }
   });
 
   return (
     <instancedMesh ref={meshRef} args={[null, null, count]}>
-      {/* Box geometry oriented along Z axis gives a great glowing spark/smoke effect */}
-      <boxGeometry args={[R * 0.015, R * 0.015, R * 0.08]} />
-      <meshBasicMaterial blending={THREE.AdditiveBlending} depthWrite={false} transparent opacity={0.6} />
+      <boxGeometry args={[R * 0.012, R * 0.012, R * 0.09]} />
+      <meshBasicMaterial blending={THREE.AdditiveBlending} depthWrite={false} transparent opacity={0.7} />
     </instancedMesh>
   );
 }

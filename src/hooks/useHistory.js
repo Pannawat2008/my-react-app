@@ -1,81 +1,77 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
 
 const MAX_HISTORY = 50;
 
 /**
- * useHistory — Undo/Redo state management hook.
+ * useHistory — Undo/Redo state management hook conforming to React 19 concurrent safety.
  *
  * @param {any} initialState - The initial state value
  * @returns {[any, function, object]} - [state, setState, historyControls]
  *   historyControls: { undo, redo, canUndo, canRedo, historyLength }
  */
 export default function useHistory(initialState) {
-  const [state, setInternalState] = useState(initialState);
-  const pastRef = useRef([]); // Stack of previous states
-  const futureRef = useRef([]); // Stack of undone states
+  const [historyState, setHistoryState] = useState({
+    past: [],
+    present: initialState,
+    future: [],
+  });
 
   const setState = useCallback((updater) => {
-    setInternalState((prev) => {
-      const newState = typeof updater === 'function' ? updater(prev) : updater;
+    setHistoryState((curr) => {
+      const newPresent = typeof updater === 'function' ? updater(curr.present) : updater;
 
       // Don't push if the new state is identical (deep compare via JSON)
-      if (JSON.stringify(prev) === JSON.stringify(newState)) {
-        return prev;
+      if (JSON.stringify(curr.present) === JSON.stringify(newPresent)) {
+        return curr;
       }
 
-      // Push current state to past
-      pastRef.current = [...pastRef.current, prev].slice(-MAX_HISTORY);
-
-      // Clear future on new change (standard undo/redo behavior)
-      futureRef.current = [];
-
-      return newState;
+      return {
+        past: [...curr.past, curr.present].slice(-MAX_HISTORY),
+        present: newPresent,
+        future: [],
+      };
     });
   }, []);
 
   const undo = useCallback(() => {
-    setInternalState((prev) => {
-      if (pastRef.current.length === 0) return prev;
+    setHistoryState((curr) => {
+      if (curr.past.length === 0) return curr;
 
-      const previous = pastRef.current[pastRef.current.length - 1];
-      pastRef.current = pastRef.current.slice(0, -1);
+      const previous = curr.past[curr.past.length - 1];
+      const newPast = curr.past.slice(0, -1);
 
-      // Push current to future
-      futureRef.current = [...futureRef.current, prev];
-
-      return previous;
+      return {
+        past: newPast,
+        present: previous,
+        future: [...curr.future, curr.present],
+      };
     });
   }, []);
 
   const redo = useCallback(() => {
-    setInternalState((prev) => {
-      if (futureRef.current.length === 0) return prev;
+    setHistoryState((curr) => {
+      if (curr.future.length === 0) return curr;
 
-      const next = futureRef.current[futureRef.current.length - 1];
-      futureRef.current = futureRef.current.slice(0, -1);
+      const next = curr.future[curr.future.length - 1];
+      const newFuture = curr.future.slice(0, -1);
 
-      // Push current to past
-      pastRef.current = [...pastRef.current, prev];
-
-      return next;
+      return {
+        past: [...curr.past, curr.present],
+        present: next,
+        future: newFuture,
+      };
     });
   }, []);
 
-  // We need a way to read past/future lengths reactively.
-  // Since refs don't trigger re-render, we derive from state changes.
-  // The trick: canUndo/canRedo are checked on each render.
-  const canUndo = pastRef.current.length > 0;
-  const canRedo = futureRef.current.length > 0;
-
   return [
-    state,
+    historyState.present,
     setState,
     {
       undo,
       redo,
-      canUndo,
-      canRedo,
-      historyLength: pastRef.current.length,
+      canUndo: historyState.past.length > 0,
+      canRedo: historyState.future.length > 0,
+      historyLength: historyState.past.length,
     },
   ];
 }

@@ -1,28 +1,49 @@
-import React, { useMemo } from 'react';
 import { useControls, LevaPanel, useCreateStore } from 'leva';
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls, Grid, Environment } from '@react-three/drei';
+import { OrbitControls, Grid, Environment, ContactShadows } from '@react-three/drei';
 import SimTurbine from './SimTurbine';
-import { findBestGearStages } from '../utils/gearOptimizer';
+import { useSim } from '../context/SimContext';
+import { useBlade } from '../context/BladeContext';
+import { useGear } from '../context/GearContext';
+import { useTheme } from '../hooks/useTheme';
 
 /* ──────────────────────────────────────────── */
 /*              SIM CONTROLS TAB                */
 /* ──────────────────────────────────────────── */
-export function SimControlsTab({ ctx }) {
-  const { 
-    windSpeed, setWindSpeed, 
-    heatmapProperty, setHeatmapProperty,
-    simPlaying, setSimPlaying,
-    bladePitch, setBladePitch,
-    timeScale, setTimeScale,
-    showParticles, setShowParticles,
-    tunnelScale, setTunnelScale,
-    bladeParams, setBladeParams,
-    rpm, tsr, generatorLoad, setGeneratorLoad,
-    loadModel, setLoadModel, constantLoadGcm, setConstantLoadGcm,
-    ratedPowerW, setRatedPowerW, ratedRpm, setRatedRpm,
-    gearStore, powerCurve
-  } = ctx;
+export function SimControlsTab() {
+  const {
+    windSpeed,
+    setWindSpeed,
+    heatmapProperty,
+    setHeatmapProperty,
+    simPlaying,
+    setSimPlaying,
+    bladePitch,
+    setBladePitch,
+    timeScale,
+    setTimeScale,
+    showParticles,
+    setShowParticles,
+    tunnelScale,
+    setTunnelScale,
+    loadModel,
+    setLoadModel,
+    generatorLoad,
+    setGeneratorLoad,
+    constantLoadGcm,
+    setConstantLoadGcm,
+    ratedPowerW,
+    setRatedPowerW,
+    ratedRpm,
+    setRatedRpm,
+    liveRpm,
+    liveElectricalPowerW,
+    liveAeroTorqueNm,
+    liveThrustN,
+  } = useSim();
+
+  const { bladeParams, designTsr } = useBlade();
+  const { autoOptimizeGearRatio } = useGear();
 
   const store = useCreateStore();
 
@@ -32,32 +53,25 @@ export function SimControlsTab({ ctx }) {
         value: windSpeed,
         min: 1,
         max: 25,
-        step: 0.01,
-        onChange: (v) => setWindSpeed(v)
+        step: 0.5,
+        onChange: (v) => setWindSpeed(v),
       },
-      'Num Blades': {
-        value: bladeParams.numBlades || 3,
-        min: 1,
-        max: 6,
-        step: 1,
-        onChange: (v) => setBladeParams(prev => ({ ...prev, numBlades: v }))
-      },
-      'Heatmap Property': {
-        value: heatmapProperty,
-        options: ['None', 'Torque', 'Lift Coeff', 'Drag Coeff', 'Angle of Attack'],
-        onChange: (v) => setHeatmapProperty(v)
-      },
-      'Collective Pitch (deg)': {
+      'Blade Pitch (°)': {
         value: bladePitch,
         min: -10,
-        max: 90,
+        max: 80,
         step: 1,
-        onChange: (v) => setBladePitch(v)
+        onChange: (v) => setBladePitch(v),
       },
-      'Load Model': {
+      'Heatmap Overlay': {
+        value: heatmapProperty,
+        options: ['None', 'Torque', 'Lift Coeff', 'Drag Coeff', 'Angle of Attack', 'Induction'],
+        onChange: (v) => setHeatmapProperty(v),
+      },
+      'Drivetrain Load Model': {
         value: loadModel,
-        options: ['Simple (%)', 'Constant Friction', 'Realistic DC Motor'],
-        onChange: (v) => setLoadModel(v)
+        options: ['Realistic DC Motor', 'Constant Friction', 'Simple (%)'],
+        onChange: (v) => setLoadModel(v),
       },
       'Generator Load (%)': {
         value: generatorLoad,
@@ -65,154 +79,127 @@ export function SimControlsTab({ ctx }) {
         max: 100,
         step: 1,
         onChange: (v) => setGeneratorLoad(v),
-        render: (get) => get('Load Model') === 'Simple (%)'
+        render: (get) => get('Drivetrain Load Model') === 'Simple (%)',
       },
-      'Cogging Torque (g·cm)': {
+      'Cogging Friction (g·cm)': {
         value: constantLoadGcm,
         min: 0,
-        max: 500,
-        step: 0.1,
+        max: 300,
+        step: 1,
         onChange: (v) => setConstantLoadGcm(v),
-        render: (get) => get('Load Model') !== 'Simple (%)'
+        render: (get) => get('Drivetrain Load Model') !== 'Simple (%)',
       },
-      'Rated Power (Watts)': {
+      'Generator Rated Power (W)': {
         value: ratedPowerW,
-        min: 0.1,
-        max: 50,
-        step: 0.1,
+        min: 0.5,
+        max: 100,
+        step: 0.5,
         onChange: (v) => setRatedPowerW(v),
-        render: (get) => get('Load Model') === 'Realistic DC Motor'
+        render: (get) => get('Drivetrain Load Model') === 'Realistic DC Motor',
       },
-      'Rated RPM': {
+      'Generator Rated RPM': {
         value: ratedRpm,
         min: 100,
         max: 5000,
-        step: 10,
+        step: 50,
         onChange: (v) => setRatedRpm(v),
-        render: (get) => get('Load Model') === 'Realistic DC Motor'
+        render: (get) => get('Drivetrain Load Model') === 'Realistic DC Motor',
       },
-      'Tunnel Size Multiplier': {
+      'Tunnel Multiplier': {
         value: tunnelScale,
-        min: 1.0,
-        max: 5.0,
+        min: 1.2,
+        max: 4.0,
         step: 0.1,
-        onChange: (v) => setTunnelScale(v)
+        onChange: (v) => setTunnelScale(v),
       },
-      'Show Smoke Particles': {
+      'Smoke Streamlines': {
         value: showParticles,
-        onChange: (v) => setShowParticles(v)
+        onChange: (v) => setShowParticles(v),
       },
-      'Play Animation': {
+      'Sim Animation Active': {
         value: simPlaying,
-        onChange: (v) => setSimPlaying(v)
+        onChange: (v) => setSimPlaying(v),
       },
-      'Time Scale': {
+      'Time Acceleration': {
         value: timeScale,
-        min: 0.1,
-        max: 2.0,
+        min: 0.2,
+        max: 3.0,
         step: 0.1,
-        onChange: (v) => setTimeScale(v)
-      }
+        onChange: (v) => setTimeScale(v),
+      },
     },
     { store },
-    [windSpeed, heatmapProperty, simPlaying, bladeParams.numBlades, bladePitch, timeScale, showParticles, tunnelScale]
+    [windSpeed, bladePitch, heatmapProperty, loadModel, generatorLoad, constantLoadGcm, ratedPowerW, ratedRpm, tunnelScale, showParticles, simPlaying, timeScale]
   );
 
+  const handleAutoGearMatch = () => {
+    const R = bladeParams.radiusMm / 1000;
+    const optimalRotorRpm = (designTsr * windSpeed * 60) / (2 * Math.PI * Math.max(0.1, R));
+    if (optimalRotorRpm <= 0) return;
+
+    const targetRatio = ratedRpm / optimalRotorRpm;
+    const result = autoOptimizeGearRatio(targetRatio);
+
+    if (result) {
+      alert(`⚙️ Gear Ratio Optimized!\n\nTarget Ratio: ${targetRatio.toFixed(2)}:1\nAchieved Ratio: ${result.ratio.toFixed(2)}:1\nStages: ${result.stages.map((s) => `${s.numTeeth}T ring / ${s.pinionTeeth}T pinion`).join(', ')}`);
+    }
+  };
+
   return (
-    <div className="tab-container" style={{ padding: '0px' }}>
-      <div className="tab-header" style={{ padding: '16px', borderBottom: '1px solid var(--border-color)' }}>
-        <h3 style={{ margin: 0, marginBottom: '8px' }}>Simulation Controls</h3>
-        <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-          Real-time simulation inputs.
-        </p>
-      </div>
-      
-      <div style={{ padding: '16px' }}>
-        <div style={{ marginBottom: '16px', background: 'var(--bg-card)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-            <span style={{ color: 'var(--text-secondary)' }}>Rotor RPM:</span>
-            <span style={{ fontWeight: 'bold' }}>{rpm.toFixed(1)}</span>
+    <div className="sidebar-scroll" style={{ height: '100%', overflowY: 'auto' }}>
+      {/* Live Telemetry Card */}
+      <div className="sim-telemetry-panel">
+        <div className="sim-telemetry-header">
+          <span>⚡ Live Aerodynamic Telemetry</span>
+          <span className={`sim-pulse-badge ${simPlaying ? 'active' : ''}`}>
+            {simPlaying ? 'LIVE' : 'PAUSED'}
+          </span>
+        </div>
+        <div className="sim-telemetry-grid">
+          <div className="sim-metric">
+            <span className="sim-metric-label">Rotor Speed</span>
+            <span className="sim-metric-val">{liveRpm.toFixed(1)} <small>RPM</small></span>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ color: 'var(--text-secondary)' }}>TSR:</span>
-            <span style={{ fontWeight: 'bold' }}>{tsr.toFixed(1)}</span>
+          <div className="sim-metric">
+            <span className="sim-metric-label">Electrical Power</span>
+            <span className="sim-metric-val">
+              {liveElectricalPowerW < 1000 ? `${liveElectricalPowerW.toFixed(1)} W` : `${(liveElectricalPowerW / 1000).toFixed(2)} kW`}
+            </span>
+          </div>
+          <div className="sim-metric">
+            <span className="sim-metric-label">Aero Torque</span>
+            <span className="sim-metric-val">{liveAeroTorqueNm.toFixed(2)} <small>N·m</small></span>
+          </div>
+          <div className="sim-metric">
+            <span className="sim-metric-label">Axial Thrust</span>
+            <span className="sim-metric-val">{liveThrustN.toFixed(1)} <small>N</small></span>
           </div>
         </div>
+      </div>
 
-        <button 
-          className="panel-btn primary"
-          style={{ width: '100%', marginBottom: '16px', padding: '10px' }}
-          onClick={() => {
-            const R = bladeParams.radiusMm / 1000;
-            const optimalRpm = (tsr * windSpeed * 60) / (2 * Math.PI * R);
-            
-            if (optimalRpm <= 0) {
-              alert("Wind speed or TSR is too low to optimize.");
-              return;
-            }
-            
-            const targetRatio = ratedRpm / optimalRpm;
-            const best = findBestGearStages(targetRatio);
-            
-            if (gearStore) {
-              // Programmatically update Leva store
-              const updates = { 'Global Settings.numStages': best.stages.length };
-              
-              best.stages.forEach((stage, idx) => {
-                updates[`Stage ${idx + 1}.Gear Geometry.s${idx}_numTeeth`] = stage.numTeeth;
-                updates[`Stage ${idx + 1}.Pinion.s${idx}_pinionTeeth`] = stage.pinionTeeth;
-                updates[`Stage ${idx + 1}.Pinion.s${idx}_hasPinion`] = true; // Ensure pinion is enabled
-              });
-              
-              // Apply to Leva state (Note: using undocumented internal zustand store update for Leva)
-              // Wait, leva's set method is store.set(updates) but store is passed in as prop to useControls.
-              // If it's a zustand store, we can use setState or store.set
-              try {
-                if (gearStore.set) {
-                  gearStore.set(updates);
-                } else if (gearStore.setState) {
-                  // Direct zustand store mutation may not trigger leva UI updates perfectly, but we'll try
-                  // Actually Leva exposes a context or we can just update the data path.
-                  const currentData = gearStore.getState().data;
-                  Object.keys(updates).forEach(key => {
-                    if (currentData[key]) {
-                      gearStore.getState().setValueAtPath(key, updates[key], true);
-                    }
-                  });
-                }
-              } catch (e) {
-                console.error("Failed to update gear store programmatically", e);
-                alert("Calculated Best Gear Ratio: " + best.ratio.toFixed(2) + " (" + best.stages.map(s => s.numTeeth + ":" + s.pinionTeeth).join(', ') + "). Please enter this manually in the Gear Settings tab.");
-                return;
-              }
-              
-              alert(`Optimized Gearbox Applied!\n\nTarget Ratio: ${targetRatio.toFixed(2)}:1\nActual Ratio: ${best.ratio.toFixed(2)}:1\nStages: ${best.stages.map(s => s.numTeeth + "T ring / " + s.pinionTeeth + "T pinion").join(', ')}`);
-            }
-          }}
-        >
-          ⚙️ Auto-Optimize Gearbox Ratio
-        </button>
+      <button className="optimize-btn" style={{ margin: '14px 0 16px' }} onClick={handleAutoGearMatch}>
+        <span>⚙️</span> Auto-Match Gearbox to Generator
+      </button>
 
-        <LevaPanel 
-          store={store} 
-          fill 
-          flat 
+      <div className="sim-leva-wrapper">
+        <LevaPanel
+          store={store}
+          fill
+          flat
           titleBar={false}
           theme={{
             colors: {
               elevation1: 'var(--bg-card)',
-              elevation2: 'var(--bg-body)',
+              elevation2: 'var(--bg-app)',
               elevation3: 'var(--bg-sidebar-header)',
-              accent1: 'var(--primary)',
-              accent2: 'var(--primary-hover)',
-              accent3: 'var(--primary)',
+              accent1: 'var(--accent)',
+              accent2: 'var(--accent-light)',
+              accent3: 'var(--accent)',
               highlight1: 'var(--text-secondary)',
               highlight2: 'var(--text-primary)',
               highlight3: 'var(--text-primary)',
-              vivid1: 'var(--primary)',
             },
-            radii: { sm: '4px', md: '6px', lg: '8px' }
-          }} 
+          }}
         />
       </div>
     </div>
@@ -222,102 +209,104 @@ export function SimControlsTab({ ctx }) {
 /* ──────────────────────────────────────────── */
 /*              SIM VIEWPORT TAB                */
 /* ──────────────────────────────────────────── */
-export function SimViewportTab({ ctx }) {
+export function SimViewportTab() {
+  const { currentTheme } = useTheme();
   const {
-    canvasBg, gridSection, gridCell,
-    segments, bemResults, rpm, heatmapProperty, showSpar, bladeParams, simPlaying, windSpeed, bladePitch, timeScale, showParticles, tunnelScale, gearStore, generatorLoad, loadModel, constantLoadGcm, ratedPowerW, ratedRpm, setLiveRpm, setLiveElectricalPowerW, liveElectricalPowerW, overlayMinimized, setOverlayMinimized
-  } = ctx;
+    liveRpm,
+    liveElectricalPowerW,
+    liveAeroTorqueNm,
+    heatmapProperty,
+    overlayMinimized,
+    setOverlayMinimized,
+  } = useSim();
 
+  const { bladeParams, designBemResults } = useBlade();
   const R = bladeParams.radiusMm / 1000;
-  
-  // Format power nicely (Watts vs kW)
-  const formatPower = (watts) => {
-    if (watts < 1000) return { val: watts.toFixed(1), unit: 'W' };
-    return { val: (watts / 1000).toFixed(2), unit: 'kW' };
-  };
 
-  const aeroPower = formatPower(bemResults.totalPower);
-  const elecPower = formatPower(liveElectricalPowerW || 0);
+  const canvasBg = currentTheme.vars['--3d-bg'] || '#090d16';
+  const gridSection = currentTheme.vars['--grid-section'] || '#1e293b';
+  const gridCell = currentTheme.vars['--grid-cell'] || '#0f172a';
+
+  const stallDetected = designBemResults.segments?.some((s) => s.stallDetected);
 
   return (
-    <div className="tab-container viewport-container" style={{ position: 'relative', width: '100%', height: '100%' }}>
-      
-      {/* ── LIVE STATS OVERLAY ── */}
-      <div className={`overlay-bar ${overlayMinimized ? 'minimized' : ''}`} style={{ zIndex: 10 }}>
-        {!overlayMinimized && (
-          <div className="overlay-left">
-            {bemResults.segments.some(s => s.stallDetected) && (
-              <div className="stall-box">
-                <strong>⚠ Stall Detected!</strong> Turbine is struggling.
-              </div>
-            )}
-          </div>
-        )}
-        <div className="overlay-right">
-          <button 
-            className="overlay-toggle" 
-            onClick={() => setOverlayMinimized(!overlayMinimized)}
-          >
-            {overlayMinimized ? "👁️ Show Live Stats" : "👁️ Hide Stats"}
-          </button>
-          {!overlayMinimized && (
-            <div className="power-card glass">
-              <div className="power-label" style={{ color: 'var(--primary)' }}>Electrical Output</div>
-              <div className="power-value" style={{ color: 'var(--primary)' }}>
-                {elecPower.val}
-                <span className="power-unit"> {elecPower.unit}</span>
-              </div>
-              <div className="power-stats">
-                <div className="power-stat">
-                  <span className="power-stat-label">Aero Power</span>
-                  <span className="power-stat-value">{aeroPower.val} {aeroPower.unit}</span>
-                </div>
-                <div className="power-stat-divider" />
-                <div className="power-stat">
-                  <span className="power-stat-label">Live RPM</span>
-                  <span className="power-stat-value">{rpm.toFixed(1)}</span>
-                </div>
-              </div>
+    <div className="canvas-area" style={{ height: '100%', width: '100%', position: 'relative' }}>
+      {/* ── Overlay Bar ── */}
+      <div className="overlay-bar">
+        <div className="overlay-left">
+          {stallDetected && !overlayMinimized && (
+            <div className="stall-box">
+              <strong>⚠ Aerodynamic Stall Warning</strong> High angle of attack inducing separation.
             </div>
           )}
         </div>
+
+        <div className="overlay-right">
+          <div className={`power-card glass ${overlayMinimized ? 'collapsed' : ''}`}>
+            <div className="power-card-header" onClick={() => setOverlayMinimized(!overlayMinimized)}>
+              <div className="power-label">
+                <span className="power-status-dot" />
+                Live Generator Power
+              </div>
+              <button
+                className="power-collapse-btn"
+                title={overlayMinimized ? 'Expand Live Stats' : 'Collapse Live Stats'}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOverlayMinimized(!overlayMinimized);
+                }}
+              >
+                {overlayMinimized ? '▾' : '▴'}
+              </button>
+            </div>
+
+            {!overlayMinimized ? (
+              <div className="power-card-body animate-fadeIn">
+                <div className="power-value">
+                  {liveElectricalPowerW < 1000
+                    ? `${liveElectricalPowerW.toFixed(1)}`
+                    : `${(liveElectricalPowerW / 1000).toFixed(2)}`}
+                  <span className="power-unit">{liveElectricalPowerW < 1000 ? ' W' : ' kW'}</span>
+                </div>
+                <div className="power-stats">
+                  <div className="power-stat">
+                    <span className="power-stat-label">Live RPM</span>
+                    <span className="power-stat-value">{liveRpm.toFixed(1)}</span>
+                  </div>
+                  <div className="power-stat-divider" />
+                  <div className="power-stat">
+                    <span className="power-stat-label">Torque</span>
+                    <span className="power-stat-value">{liveAeroTorqueNm.toFixed(1)} N·m</span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="power-mini-readout animate-fadeIn" onClick={() => setOverlayMinimized(false)}>
+                <span className="power-mini-val">
+                  {liveElectricalPowerW < 1000
+                    ? `${liveElectricalPowerW.toFixed(0)} W`
+                    : `${(liveElectricalPowerW / 1000).toFixed(1)} kW`}
+                </span>
+                <span className="power-mini-chip">{liveRpm.toFixed(0)} RPM</span>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
-      <Canvas
-        camera={{ position: [0, 0, R * 2.5], fov: 45 }}
-        style={{ background: canvasBg, width: '100%', height: '100%' }}
-      >
-        <ambientLight intensity={0.6} />
-        <directionalLight position={[10, 10, 10]} intensity={0.8} />
-        <directionalLight position={[-10, -10, -10]} intensity={0.3} />
+      {/* 3D Simulation Canvas */}
+      <Canvas camera={{ position: [0, 0, Math.max(3, R * 2.6)], fov: 45 }}>
+        <color attach="background" args={[canvasBg]} />
+        <ambientLight intensity={0.9} />
+        <directionalLight position={[10, 15, 10]} intensity={1.8} />
+        <directionalLight position={[-10, -10, -10]} intensity={0.6} color="#38bdf8" />
         <Environment preset="city" />
 
-        <SimTurbine 
-          segments={segments} 
-          bemResults={bemResults} 
-          rpm={rpm} 
-          heatmapProperty={heatmapProperty} 
-          showSpar={showSpar}
-          bladeParams={bladeParams}
-          simPlaying={simPlaying}
-          windSpeed={windSpeed}
-          bladePitch={bladePitch}
-          timeScale={timeScale}
-          showParticles={showParticles}
-          tunnelScale={tunnelScale}
-          gearStore={gearStore}
-          generatorLoad={generatorLoad}
-          loadModel={loadModel}
-          constantLoadGcm={constantLoadGcm}
-          ratedPowerW={ratedPowerW}
-          ratedRpm={ratedRpm}
-          setLiveRpm={setLiveRpm}
-          setLiveElectricalPowerW={setLiveElectricalPowerW}
-        />
+        <SimTurbine />
 
-        {/* 3D Grid floor */}
+        <ContactShadows position={[0, -R * 1.15, 0]} opacity={0.4} scale={R * 4} blur={2.5} far={R * 3} />
         <Grid
-          position={[0, -R * 1.1, 0]}
+          position={[0, -R * 1.15, 0]}
           args={[R * 4, R * 4]}
           cellSize={1}
           cellThickness={1}
@@ -325,31 +314,20 @@ export function SimViewportTab({ ctx }) {
           sectionSize={5}
           sectionThickness={1.5}
           sectionColor={gridSection}
-          fadeDistance={R * 3}
-          fadeStrength={1}
+          fadeDistance={R * 4}
         />
 
         <OrbitControls makeDefault />
       </Canvas>
-      
-      {/* Overlay legend for Heatmap */}
+
+      {/* Heatmap Legend */}
       {heatmapProperty !== 'None' && (
-        <div style={{
-          position: 'absolute',
-          bottom: 20,
-          right: 20,
-          background: 'var(--bg-card)',
-          padding: '12px',
-          borderRadius: '8px',
-          border: '1px solid var(--border-color)',
-          boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-          pointerEvents: 'none'
-        }}>
-          <div style={{ marginBottom: 8, fontSize: '0.9rem', fontWeight: 'bold' }}>{heatmapProperty}</div>
-          <div style={{ display: 'flex', width: 200, height: 10, borderRadius: 5, background: 'linear-gradient(to right, #0000ff, #00ffff, #00ff00, #ffff00, #ff0000)' }} />
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-            <span>Min</span>
-            <span>Max</span>
+        <div className="sim-heatmap-legend glass">
+          <div className="sim-heatmap-title">Heatmap: {heatmapProperty}</div>
+          <div className="sim-heatmap-bar" />
+          <div className="sim-heatmap-labels">
+            <span>Low</span>
+            <span>High</span>
           </div>
         </div>
       )}

@@ -1,21 +1,20 @@
-import React from 'react';
-import { useTheme, THEMES } from '../hooks/useTheme';
+import { useTheme } from '../hooks/useTheme';
 
 export default function ThemeSwitcher() {
-  const { themeId, setThemeId } = useTheme();
+  const { themeId, setThemeId, themes } = useTheme();
 
   return (
     <div className="theme-switcher">
-      <div className="theme-switcher-label">Theme</div>
       <div className="theme-switcher-options">
-        {Object.values(THEMES).map((theme) => (
+        {Object.values(themes).map((t) => (
           <button
-            key={theme.id}
-            className={`theme-option ${themeId === theme.id ? 'active' : ''}`}
-            onClick={() => setThemeId(theme.id)}
-            title={theme.label}
+            key={t.id}
+            className={`theme-option ${themeId === t.id ? 'active' : ''}`}
+            onClick={() => setThemeId(t.id)}
+            title={t.label}
+            aria-label={t.label}
           >
-            <span className="theme-option-icon">{theme.icon}</span>
+            {t.icon}
           </button>
         ))}
       </div>

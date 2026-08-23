@@ -1,183 +1,367 @@
-import React, { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
+import { Html } from '@react-three/drei';
 import { getAirfoilProfile } from '../utils/airfoilProfile';
+import { buildWatertightPartGeometry, computeSliceBoundaries } from '../utils/jointBuilder';
 
-export default function Blade({ segments, showSpar, carbonRodDia = 0, carbonRodDepthPct = 100, leRadiusMod = 1.0, teThicknessMm = 0.0, teFlapDeg = 0.0, segmentColors = null, centerBlade = true, bladePitch = 0 }) {
-  const geometry = useMemo(() => {
+/* ── Zebra Stripe Curvature Shader ── */
+const ZebraShaderMaterial = {
+  uniforms: {
+    stripeFrequency: { value: 24.0 },
+  },
+  vertexShader: `
+    varying vec3 vNormal;
+    varying vec3 vViewPosition;
+    void main() {
+      vNormal = normalize(normalMatrix * normal);
+      vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+      vViewPosition = -mvPosition.xyz;
+      gl_Position = projectionMatrix * mvPosition;
+    }
+  `,
+  fragmentShader: `
+    varying vec3 vNormal;
+    varying vec3 vViewPosition;
+    uniform float stripeFrequency;
+    void main() {
+      vec3 viewDir = normalize(vViewPosition);
+      vec3 reflectDir = reflect(-viewDir, normalize(vNormal));
+      float stripe = sin(reflectDir.y * stripeFrequency);
+      float val = step(0.0, stripe);
+      gl_FragColor = vec4(vec3(val), 1.0);
+    }
+  `,
+};
+
+/* ── Piece color palette for sliced / exploded view ── */
+const PIECE_COLORS = [
+  '#60a5fa', '#34d399', '#fbbf24', '#f87171', '#a78bfa',
+  '#f472b6', '#38bdf8', '#4ade80', '#facc15', '#fb923c',
+];
+
+export default function Blade({
+  segments,
+  showSpar = false,
+  viewMode = 'solid',
+  showDimensions = true,
+  showForceVectors = false,
+  carbonRodDia = 0,
+  carbonRodDepthPct = 100,
+  leRadiusMod = 1.0,
+  teThicknessMm = 0.0,
+  teFlapDeg = 0.0,
+  segmentColors = null,
+  centerBlade = true,
+  bladePitch = 0,
+  bemSegments = null,
+  sliceEnabled = false,
+  maxZHeight = 220,
+  jointParams = null,
+}) {
+  const zebraMatRef = useRef();
+
+  const maxR = segments[segments.length - 1].r;
+  const spanOffset = centerBlade ? maxR / 2 : 0;
+  const totalR = maxR;
+  const rootChord = segments[0].chord;
+  const tipChord = segments[segments.length - 1].chord;
+
+  /* ── Compute Slice Boundaries ── */
+  const boundaries = useMemo(() => {
+    if (!sliceEnabled || maxZHeight <= 0) return [0, segments.length - 1];
+    return computeSliceBoundaries(segments, maxZHeight);
+  }, [sliceEnabled, maxZHeight, segments]);
+
+  const isSliced = sliceEnabled && boundaries.length > 2;
+  const numParts = boundaries.length - 1;
+
+  /* ── Build Watertight Geometries for Each Part ── */
+  const partGeometries = useMemo(() => {
+    const profileParams = { leRadiusMod, teThicknessMm, teFlapDeg };
+    const isJointsEnabled = jointParams && jointParams.enabled;
+
+    if (!isSliced) {
+      // Single continuous blade
+      const geo = buildWatertightPartGeometry(
+        segments,
+        0,
+        segments.length - 1,
+        false,
+        false,
+        null,
+        profileParams,
+        carbonRodDia,
+        carbonRodDepthPct
+      );
+      // Convert mm to meters and apply center offset
+      geo.scale(0.001, 0.001, 0.001);
+      geo.translate(0, -spanOffset, 0);
+      geo.computeVertexNormals();
+      return [{ geo, startIdx: 0, endIdx: segments.length - 1, partNum: 1 }];
+    }
+
+    // Multiple sliced parts
+    const parts = [];
+    for (let p = 0; p < numParts; p++) {
+      const startIndex = boundaries[p];
+      const endIndex = boundaries[p + 1];
+      if (startIndex >= endIndex) continue;
+
+      const hasTongue = isJointsEnabled && (p < numParts - 1);
+      const hasPocket = isJointsEnabled && (p > 0);
+
+      const geo = buildWatertightPartGeometry(
+        segments,
+        startIndex,
+        endIndex,
+        hasTongue,
+        hasPocket,
+        jointParams,
+        profileParams,
+        carbonRodDia,
+        carbonRodDepthPct
+      );
+
+      // Convert mm to meters and apply center offset
+      geo.scale(0.001, 0.001, 0.001);
+      geo.translate(0, -spanOffset, 0);
+      geo.computeVertexNormals();
+
+      parts.push({
+        geo,
+        startIndex,
+        endIndex,
+        partNum: p + 1,
+        hasTongue,
+        hasPocket,
+        cutY: segments[endIndex].r - spanOffset,
+      });
+    }
+    return parts;
+  }, [segments, boundaries, isSliced, numParts, jointParams, leRadiusMod, teThicknessMm, teFlapDeg, carbonRodDia, carbonRodDepthPct, spanOffset]);
+
+  /* ── Exploded View Offsets (along Y spanwise axis in meters) ── */
+  const explodedOffsets = useMemo(() => {
+    if (!isSliced || !jointParams) return null;
+    const explodeDist = (jointParams.explodedDistance || 0) / 1000; // mm -> meters
+    if (explodeDist <= 0) return null;
+
+    const offsets = [];
+    for (let p = 0; p < numParts; p++) {
+      offsets.push(p * explodeDist);
+    }
+    return offsets;
+  }, [isSliced, jointParams, numParts]);
+
+  /* ── Rib geometries for wireframe/ribs mode ── */
+  const ribsGeometries = useMemo(() => {
     const numPoints = 30;
-    const totalPointsPerSegment = numPoints * 2;
-    const vertices = [];
-    const indices = [];
-    const uvs = [];
-    const colors = [];
-
-    const hasHole = carbonRodDia > 0;
-    const holeR = (carbonRodDia / 1000) / 2;
-    const holeEndIndex = hasHole ? Math.max(0, Math.floor((carbonRodDepthPct / 100) * (segments.length - 1))) : -1;
-    
-    const segmentOffsets = [];
-    let currentVertexCount = 0;
-
-    segments.forEach((seg, i) => {
-      segmentOffsets.push(currentVertexCount);
-      const isHoleLayer = hasHole && i <= holeEndIndex;
-
-      const profile = getAirfoilProfile(seg.thicknessRatio, numPoints, seg.chord, leRadiusMod, teThicknessMm, teFlapDeg, seg.customInterpolator);
-      // bladePitch represents rigid-body collective rotation around the spanwise axis.
-      // We add it to twistDeg here so the entire blade mesh is generated with the feathered orientation.
+    const ribs = [];
+    segments.forEach((seg) => {
+      const profile = getAirfoilProfile(
+        seg.thicknessRatio,
+        numPoints,
+        seg.chord,
+        leRadiusMod,
+        teThicknessMm,
+        teFlapDeg,
+        seg.customInterpolator,
+        seg.airfoil
+      );
       const twistRad = (-(seg.twistDeg + bladePitch) * Math.PI) / 180;
       const cosT = Math.cos(twistRad);
       const sinT = Math.sin(twistRad);
-      const offset = centerBlade ? segments[segments.length - 1].r / 2 : 0;
-      const spanY = seg.r - offset;
+      const spanY = seg.r - spanOffset;
 
-      // 1. Outer skin
-      profile.forEach((pt, j) => {
-        let x = pt.x * seg.chord;
-        let z = pt.y * seg.chord;
-        const rotX = x * cosT - z * sinT;
-        const rotZ = x * sinT + z * cosT;
-        vertices.push(rotX, spanY, rotZ);
-        uvs.push(j / totalPointsPerSegment, i / (segments.length - 1));
-        
-        if (segmentColors && segmentColors[i]) {
-          colors.push(segmentColors[i].r, segmentColors[i].g, segmentColors[i].b);
-        } else {
-          colors.push(1, 1, 1);
-        }
+      const pts = [];
+      profile.forEach((pt) => {
+        const x = pt.x * seg.chord;
+        const z = pt.y * seg.chord;
+        pts.push(new THREE.Vector3(x * cosT - z * sinT, spanY, x * sinT + z * cosT));
       });
-      currentVertexCount += totalPointsPerSegment;
-
-      // 2. Inner skin (Hole)
-      if (isHoleLayer) {
-        for (let j = 0; j < totalPointsPerSegment; j++) {
-          const theta = (j / totalPointsPerSegment) * Math.PI * 2;
-          const hX = Math.cos(theta) * holeR;
-          const hZ = Math.sin(theta) * holeR;
-          vertices.push(hX, spanY, hZ);
-          uvs.push(j / totalPointsPerSegment, i / (segments.length - 1));
-
-          if (segmentColors && segmentColors[i]) {
-            colors.push(segmentColors[i].r, segmentColors[i].g, segmentColors[i].b);
-          } else {
-            colors.push(1, 1, 1);
-          }
-        }
-        currentVertexCount += totalPointsPerSegment;
+      if (pts.length > 0) {
+        pts.push(pts[0].clone());
+        ribs.push(new THREE.BufferGeometry().setFromPoints(pts));
       }
     });
+    return ribs;
+  }, [segments, leRadiusMod, teThicknessMm, teFlapDeg, bladePitch, spanOffset]);
 
-    // Stitch outer skin
-    for (let i = 0; i < segments.length - 1; i++) {
-      const curOffset = segmentOffsets[i];
-      const nextOffset = segmentOffsets[i + 1];
-      for (let j = 0; j < totalPointsPerSegment; j++) {
-        const nextJ = (j + 1) % totalPointsPerSegment;
-        indices.push(curOffset + j, curOffset + nextJ, nextOffset + j);
-        indices.push(nextOffset + j, curOffset + nextJ, nextOffset + nextJ);
-      }
-    }
-
-    // Stitch inner skin
-    if (hasHole) {
-      for (let i = 0; i < holeEndIndex; i++) {
-        const curInnerOffset = segmentOffsets[i] + totalPointsPerSegment;
-        const nextInnerOffset = segmentOffsets[i + 1] + totalPointsPerSegment;
-        for (let j = 0; j < totalPointsPerSegment; j++) {
-          const nextJ = (j + 1) % totalPointsPerSegment;
-          // Flipped winding order for inside-out normals
-          indices.push(curInnerOffset + j, nextInnerOffset + j, curInnerOffset + nextJ);
-          indices.push(nextInnerOffset + j, nextInnerOffset + nextJ, curInnerOffset + nextJ);
-        }
-      }
-    }
-
-    // Root cap
-    if (hasHole) {
-      // Hollow root cap
-      const curOffset = segmentOffsets[0];
-      const curInnerOffset = curOffset + totalPointsPerSegment;
-      for (let j = 0; j < totalPointsPerSegment; j++) {
-        const nextJ = (j + 1) % totalPointsPerSegment;
-        // Faces down (-y)
-        indices.push(curOffset + j, curInnerOffset + j, curOffset + nextJ);
-        indices.push(curOffset + nextJ, curInnerOffset + j, curInnerOffset + nextJ);
-      }
-    } else {
-      // Solid root cap
-      for (let j = 1; j < totalPointsPerSegment - 1; j++) {
-        indices.push(segmentOffsets[0], segmentOffsets[0] + j + 1, segmentOffsets[0] + j);
-      }
-    }
-
-    // Hole ceiling cap (if hole stops inside blade)
-    if (hasHole && holeEndIndex < segments.length - 1) {
-      const innerOffset = segmentOffsets[holeEndIndex] + totalPointsPerSegment;
-      for (let j = 1; j < totalPointsPerSegment - 1; j++) {
-        // Faces down (-y) towards the root
-        indices.push(innerOffset, innerOffset + j + 1, innerOffset + j);
-      }
-    }
-
-    // Tip cap
-    const tipOffset = segmentOffsets[segments.length - 1];
-    if (hasHole && holeEndIndex === segments.length - 1) {
-      // Hollow tip cap
-      const tipInnerOffset = tipOffset + totalPointsPerSegment;
-      for (let j = 0; j < totalPointsPerSegment; j++) {
-        const nextJ = (j + 1) % totalPointsPerSegment;
-        // Faces up (+y)
-        indices.push(tipOffset + j, tipOffset + nextJ, tipInnerOffset + j);
-        indices.push(tipOffset + nextJ, tipInnerOffset + nextJ, tipInnerOffset + j);
-      }
-    } else {
-      // Solid tip cap
-      for (let j = 1; j < totalPointsPerSegment - 1; j++) {
-        indices.push(tipOffset, tipOffset + j, tipOffset + j + 1);
-      }
-    }
-
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    geo.setIndex(indices);
-    geo.computeVertexNormals();
-    return geo;
-  }, [segments, carbonRodDia, segmentColors, centerBlade, bladePitch]);
-
+  /* ── Spar Geometry ── */
   const sparGeometry = useMemo(() => {
-    if (!showSpar) return null;
-    const maxR = segments[segments.length - 1].r;
-    const geo = new THREE.CylinderGeometry(0.1, 0.4, maxR, 16);
+    if (!showSpar && viewMode !== 'spar') return null;
+    const geo = new THREE.CylinderGeometry(0.08, 0.25, totalR, 24);
     if (!centerBlade) {
-      geo.translate(0, maxR / 2, 0);
+      geo.translate(0, totalR / 2, 0);
     }
     return geo;
-  }, [segments, showSpar, centerBlade]);
+  }, [totalR, showSpar, viewMode, centerBlade]);
 
-  // NO auto-rotation — the model stays still, user orbits with mouse
+  const isWireframe = viewMode === 'wireframe';
+  const isSparMode = showSpar || viewMode === 'spar';
+  const isRibsMode = viewMode === 'ribs';
+  const isZebraMode = viewMode === 'zebra';
+
   return (
     <group rotation={[0, 0, Math.PI / 2]}>
-      <mesh geometry={geometry}>
-        <meshPhysicalMaterial
-          color="#ffffff"
-          vertexColors={true}
-          metalness={0.1}
-          roughness={0.4}
-          clearcoat={1.0}
-          clearcoatRoughness={0.1}
-          side={THREE.DoubleSide}
-          transparent={showSpar}
-          opacity={showSpar ? 0.4 : 1}
-        />
-      </mesh>
+      {/* ── Render Watertight Blade Parts ── */}
+      {partGeometries.map((part, p) => {
+        const yOffset = explodedOffsets ? (explodedOffsets[p] || 0) : 0;
+        const pieceColor = isSliced ? PIECE_COLORS[p % PIECE_COLORS.length] : '#ffffff';
+        const startSeg = segments[part.startIndex || 0];
+        const endSeg = segments[part.endIndex || segments.length - 1];
+        const partMidY = ((startSeg?.r || 0) + (endSeg?.r || 0)) / 2 - spanOffset;
 
-      {showSpar && sparGeometry && (
+        return (
+          <group key={`blade-part-${p}`} position={[0, yOffset, 0]}>
+            <mesh geometry={part.geo}>
+              {isZebraMode ? (
+                <shaderMaterial
+                  ref={zebraMatRef}
+                  vertexShader={ZebraShaderMaterial.vertexShader}
+                  fragmentShader={ZebraShaderMaterial.fragmentShader}
+                  uniforms={ZebraShaderMaterial.uniforms}
+                  side={THREE.DoubleSide}
+                />
+              ) : (
+                <meshPhysicalMaterial
+                  color={pieceColor}
+                  vertexColors={!isSliced && segmentColors !== null}
+                  wireframe={isWireframe}
+                  metalness={0.12}
+                  roughness={0.3}
+                  clearcoat={0.9}
+                  clearcoatRoughness={0.1}
+                  side={THREE.DoubleSide}
+                  transparent={isSparMode}
+                  opacity={isSparMode ? 0.35 : 1.0}
+                />
+              )}
+            </mesh>
+
+            {/* Part Label in Exploded View */}
+            {isSliced && (
+              <Html position={[0.15, partMidY, 0.05]} center>
+                <div
+                  className="cad-dimension-badge glass"
+                  style={{
+                    background: pieceColor + '22',
+                    borderColor: pieceColor,
+                    transform: 'scale(0.9)',
+                  }}
+                >
+                  <span className="cad-dim-label">Part {part.partNum}</span>
+                  <span className="cad-dim-val" style={{ color: pieceColor }}>
+                    {part.hasTongue ? 'Boss 🟢' : part.hasPocket ? 'Pocket 🟡' : 'Solid'}
+                  </span>
+                </div>
+              </Html>
+            )}
+          </group>
+        );
+      })}
+
+      {/* ── Cut plane indicator badges & lines ── */}
+      {isSliced &&
+        boundaries.slice(1, -1).map((segIdx, idx) => {
+          const cutY = segments[segIdx].r - spanOffset;
+          const maxChord = segments[segIdx].chord || 0.1;
+          const explodeY = explodedOffsets ? (explodedOffsets[idx] + explodedOffsets[idx + 1]) / 2 : 0;
+
+          return (
+            <group key={`cutplane-${idx}`}>
+              <line position={[0, explodeY, 0]}>
+                <bufferGeometry
+                  attach="geometry"
+                  {...new THREE.BufferGeometry().setFromPoints([
+                    new THREE.Vector3(-maxChord * 0.9, cutY, 0),
+                    new THREE.Vector3(maxChord * 0.9, cutY, 0),
+                  ])}
+                />
+                <lineDashedMaterial color="#ef4444" dashSize={0.02} gapSize={0.01} linewidth={2} />
+              </line>
+
+              <Html position={[0, cutY + explodeY, 0.08]} center>
+                <div className="joint-cut-badge">
+                  <span>✂️ Cut {idx + 1} ({((segments[segIdx].r) * 1000).toFixed(0)}mm)</span>
+                </div>
+              </Html>
+            </group>
+          );
+        })}
+
+      {/* Internal Spar Geometry */}
+      {isSparMode && sparGeometry && (
         <mesh geometry={sparGeometry}>
-          <meshStandardMaterial color="#0284c7" roughness={0.7} metalness={0.3} />
+          <meshStandardMaterial color="#0284c7" roughness={0.3} metalness={0.8} />
         </mesh>
       )}
+
+      {/* Rib Wireframe Stations */}
+      {isRibsMode &&
+        ribsGeometries.map((ribGeo, idx) => (
+          <line key={idx} geometry={ribGeo}>
+            <lineBasicMaterial color="#38bdf8" linewidth={2} />
+          </line>
+        ))}
+
+      {/* ── 3D In-Viewport Dimension Callouts & Ruler Badges ── */}
+      {showDimensions && centerBlade && !explodedOffsets && (
+        <group>
+          <line>
+            <bufferGeometry
+              attach="geometry"
+              {...new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(0, -spanOffset - 0.05, 0),
+                new THREE.Vector3(0, totalR - spanOffset + 0.05, 0),
+              ])}
+            />
+            <lineDashedMaterial color="#f59e0b" dashSize={0.05} gapSize={0.02} linewidth={2} />
+          </line>
+
+          <Html position={[0.2, 0, 0]} center>
+            <div className="cad-dimension-badge glass">
+              <span className="cad-dim-label">Span R</span>
+              <span className="cad-dim-val">{totalR.toFixed(2)} m</span>
+            </div>
+          </Html>
+
+          <Html position={[0, -spanOffset, 0.1]} center>
+            <div className="cad-dimension-badge glass">
+              <span className="cad-dim-label">Root Chord</span>
+              <span className="cad-dim-val">{(rootChord * 1000).toFixed(0)} mm</span>
+            </div>
+          </Html>
+
+          <Html position={[0, totalR - spanOffset, 0.1]} center>
+            <div className="cad-dimension-badge glass">
+              <span className="cad-dim-label">Tip Chord</span>
+              <span className="cad-dim-val">{(tipChord * 1000).toFixed(0)} mm</span>
+            </div>
+          </Html>
+        </group>
+      )}
+
+      {/* ── Aerodynamic Force Vectors (Lift & Drag) ── */}
+      {showForceVectors &&
+        bemSegments &&
+        bemSegments.map((seg, i) => {
+          if (i % 3 !== 0) return null;
+          const spanY = seg.r - spanOffset;
+          const liftMag = Math.min(1.5, (seg.dT || 0) / 400);
+          const torqueMag = Math.min(1.0, (seg.dQ || 0) / 200);
+
+          return (
+            <group key={i} position={[0, spanY, 0]}>
+              <arrowHelper
+                args={[new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 0), liftMag, '#ef4444', 0.2, 0.1]}
+              />
+              <arrowHelper
+                args={[new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 0), torqueMag, '#8b5cf6', 0.15, 0.08]}
+              />
+            </group>
+          );
+        })}
     </group>
   );
 }

@@ -51,8 +51,23 @@ export const airfoils = {
       { alpha: 30, cl: 0.8, cd: 0.45 }
     ]
   },
+  'SG6043': {
+    name: 'Selig SG6043',
+    description: 'High-lift, low Reynolds number airfoil by Michael Selig. Optimal for small/micro wind turbines.',
+    thickness: 0.10,
+    category: 'Low Reynolds Micro',
+    polars: [
+      { alpha: -5, cl: -0.15, cd: 0.009 },
+      { alpha: 0, cl: 0.50, cd: 0.008 },
+      { alpha: 5, cl: 1.05, cd: 0.011 },
+      { alpha: 8, cl: 1.30, cd: 0.016 }, // Optimal
+      { alpha: 10, cl: 1.42, cd: 0.022 },
+      { alpha: 14, cl: 1.55, cd: 0.048 }, // Soft stall onset
+      { alpha: 20, cl: 1.05, cd: 0.17 },
+      { alpha: 30, cl: 0.78, cd: 0.35 },
+    ],
+  },
 
-  /* ── NEW AIRFOILS ── */
 
   'NACA0012': {
     name: 'NACA 0012',

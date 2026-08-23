@@ -1,6 +1,9 @@
 import { getAirfoilProfile } from './airfoilProfile';
 import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
 import * as THREE from 'three';
+import JSZip from 'jszip';
+import { buildWatertightPartGeometry, computeSliceBoundaries } from './jointBuilder';
+
 /* ── CSV Export ── */
 export function exportCSV(bemResults) {
   let csvContent =
@@ -34,7 +37,17 @@ export async function exportFusionCSV(segments, leRadiusMod = 1.0, teThicknessMm
   const numPoints = 50; // good resolution for splines
 
   segments.forEach((seg, i) => {
-    const profile = getAirfoilProfile(seg.thicknessRatio, numPoints, seg.chord, leRadiusMod, teThicknessMm, teFlapDeg, seg.customInterpolator);
+    let csvContent = '';
+    const profile = getAirfoilProfile(
+      seg.thicknessRatio,
+      numPoints,
+      seg.chord,
+      leRadiusMod,
+      teThicknessMm,
+      teFlapDeg,
+      seg.customInterpolator,
+      seg.airfoil
+    );
     const twistRad = (seg.twistDeg * Math.PI) / 180;
     const cosT = Math.cos(twistRad);
     const sinT = Math.sin(twistRad);
@@ -79,8 +92,6 @@ export async function exportFusionCSV(segments, leRadiusMod = 1.0, teThicknessMm
   a.click();
 }
 
-import JSZip from 'jszip';
-
 /* ── DAT Airfoil Export ── */
 export async function exportAirfoilDAT(segments, leRadiusMod = 1.0, teThicknessMm = 0.0, teFlapDeg = 0.0) {
   const zip = new JSZip();
@@ -93,9 +104,18 @@ export async function exportAirfoilDAT(segments, leRadiusMod = 1.0, teThicknessM
     { name: 'tip', seg: segments[segments.length - 1] }
   ];
 
-  sectionsToExport.forEach(section => {
+  sectionsToExport.forEach((section) => {
     // Generate normalized profile (chord = 1)
-    const profile = getAirfoilProfile(section.seg.thicknessRatio, numPoints, 1, leRadiusMod, teThicknessMm, teFlapDeg, section.seg.customInterpolator);
+    const profile = getAirfoilProfile(
+      section.seg.thicknessRatio,
+      numPoints,
+      1,
+      leRadiusMod,
+      teThicknessMm,
+      teFlapDeg,
+      section.seg.customInterpolator,
+      section.seg.airfoil
+    );
     
     // Selig format expects points from TE over upper surface to LE, then lower surface back to TE.
     // Our getAirfoilProfile returns upper surface (LE -> TE) then lower surface (TE -> LE).
@@ -122,335 +142,167 @@ export async function exportAirfoilDAT(segments, leRadiusMod = 1.0, teThicknessM
   a.click();
 }
 
-/* ── STL Export ── */
-export async function exportSTL(segments, carbonRodDia = 0, carbonRodDepthPct = 100, leRadiusMod = 1.0, teThicknessMm = 0.0, teFlapDeg = 0.0, sliceHeightMm = 0) {
-  const numPoints = 30;
-  const totalPointsPerSegment = numPoints * 2;
-  const vertices = [];
-  
-  const hasHole = carbonRodDia > 0;
-  const holeR = (carbonRodDia / 1000) / 2;
-  const holeEndIndex = hasHole ? Math.max(0, Math.floor((carbonRodDepthPct / 100) * (segments.length - 1))) : -1;
-  
-  const segmentOffsets = [];
-  let currentVertexCount = 0;
-
-  segments.forEach((seg, i) => {
-    segmentOffsets.push(currentVertexCount);
-    const isHoleLayer = hasHole && i <= holeEndIndex;
-
-    const profile = getAirfoilProfile(seg.thicknessRatio, numPoints, seg.chord, leRadiusMod, teThicknessMm, teFlapDeg, seg.customInterpolator);
-    const twistRad = (seg.twistDeg * Math.PI) / 180;
-    const cosT = Math.cos(twistRad);
-    const sinT = Math.sin(twistRad);
-
-    // 1. Outer skin
-    profile.forEach((pt) => {
-      // Convert from meters to millimeters for 3D printing
-      let x = pt.x * seg.chord * 1000;
-      let z = pt.y * seg.chord * 1000;
-      let rotX = x * cosT - z * sinT;
-      let rotZ = x * sinT + z * cosT;
-      vertices.push({ x: rotX, y: seg.r * 1000, z: rotZ });
-    });
-    currentVertexCount += totalPointsPerSegment;
-
-    // 2. Inner skin (Hole)
-    if (isHoleLayer) {
-      for (let j = 0; j < totalPointsPerSegment; j++) {
-        const theta = (j / totalPointsPerSegment) * Math.PI * 2;
-        const hX = Math.cos(theta) * holeR * 1000;
-        const hZ = Math.sin(theta) * holeR * 1000;
-        vertices.push({ x: hX, y: seg.r * 1000, z: hZ });
-      }
-      currentVertexCount += totalPointsPerSegment;
-    }
-  });
-
-  const R_mm = segments[segments.length - 1].r * 1000;
-  const sliceBoundaries = [0];
-  
-  if (sliceHeightMm > 0 && sliceHeightMm < R_mm) {
-    let currentLimit = sliceHeightMm;
-    for (let i = 0; i < segments.length; i++) {
-      if (segments[i].r * 1000 >= currentLimit) {
-        sliceBoundaries.push(i);
-        currentLimit += sliceHeightMm;
-      }
-    }
-  }
-  sliceBoundaries.push(segments.length - 1);
-
+/* ── STL Export (Watertight Binary STL for all Slicers) ── */
+export async function exportSTL(
+  segments,
+  carbonRodDia = 0,
+  carbonRodDepthPct = 100,
+  leRadiusMod = 1.0,
+  teThicknessMm = 0.0,
+  teFlapDeg = 0.0,
+  sliceHeightMm = 0,
+  jointParams = null
+) {
+  const profileParams = { leRadiusMod, teThicknessMm, teFlapDeg };
+  const sliceBoundaries = computeSliceBoundaries(segments, sliceHeightMm);
+  const exporter = new STLExporter();
   const zip = new JSZip();
 
-  function buildSliceSTL(startIndex, endIndex, partIndex) {
-    let stl = `solid wind_turbine_blade_part_${partIndex}\n`;
-    const indices = [];
-
-    // Stitch outer skin for this slice
-    for (let i = startIndex; i < endIndex; i++) {
-      const curOffset = segmentOffsets[i];
-      const nextOffset = segmentOffsets[i + 1];
-      for (let j = 0; j < totalPointsPerSegment; j++) {
-        const nextJ = (j + 1) % totalPointsPerSegment;
-        indices.push(curOffset + j, curOffset + nextJ, nextOffset + j);
-        indices.push(nextOffset + j, curOffset + nextJ, nextOffset + nextJ);
-      }
-    }
-
-    // Stitch inner skin for this slice
-    if (hasHole) {
-      const localHoleEnd = Math.min(holeEndIndex, endIndex);
-      for (let i = startIndex; i < localHoleEnd; i++) {
-        const curInnerOffset = segmentOffsets[i] + totalPointsPerSegment;
-        const nextInnerOffset = segmentOffsets[i + 1] + totalPointsPerSegment;
-        for (let j = 0; j < totalPointsPerSegment; j++) {
-          const nextJ = (j + 1) % totalPointsPerSegment;
-          indices.push(curInnerOffset + j, nextInnerOffset + j, curInnerOffset + nextJ);
-          indices.push(nextInnerOffset + j, nextInnerOffset + nextJ, curInnerOffset + nextJ);
-        }
-      }
-    }
-
-    // Root cap for this slice
-    if (hasHole && startIndex <= holeEndIndex) {
-      // Hollow cap
-      const curOffset = segmentOffsets[startIndex];
-      const curInnerOffset = curOffset + totalPointsPerSegment;
-      for (let j = 0; j < totalPointsPerSegment; j++) {
-        const nextJ = (j + 1) % totalPointsPerSegment;
-        indices.push(curOffset + j, curInnerOffset + j, curOffset + nextJ);
-        indices.push(curOffset + nextJ, curInnerOffset + j, curInnerOffset + nextJ);
-      }
-    } else {
-      // Solid cap
-      for (let j = 1; j < totalPointsPerSegment - 1; j++) {
-        indices.push(segmentOffsets[startIndex], segmentOffsets[startIndex] + j + 1, segmentOffsets[startIndex] + j);
-      }
-    }
-
-    // Tip cap for this slice
-    const tipOffset = segmentOffsets[endIndex];
-    if (hasHole && endIndex <= holeEndIndex) {
-      // Hollow cap
-      const tipInnerOffset = tipOffset + totalPointsPerSegment;
-      for (let j = 0; j < totalPointsPerSegment; j++) {
-        const nextJ = (j + 1) % totalPointsPerSegment;
-        indices.push(tipOffset + j, tipOffset + nextJ, tipInnerOffset + j);
-        indices.push(tipOffset + nextJ, tipInnerOffset + nextJ, tipInnerOffset + j);
-      }
-    } else {
-      // Solid cap
-      for (let j = 1; j < totalPointsPerSegment - 1; j++) {
-        indices.push(tipOffset, tipOffset + j, tipOffset + j + 1);
-      }
-    }
-
-    function addTriangle(v1, v2, v3) {
-      const ux = v2.x - v1.x, uy = v2.y - v1.y, uz = v2.z - v1.z;
-      const vx = v3.x - v1.x, vy = v3.y - v1.y, vz = v3.z - v1.z;
-      let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-      const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
-      if (len > 0) { nx /= len; ny /= len; nz /= len; }
-      stl += `  facet normal ${nx.toFixed(5)} ${ny.toFixed(5)} ${nz.toFixed(5)}\n`;
-      stl += `    outer loop\n`;
-      stl += `      vertex ${v1.x.toFixed(5)} ${v1.y.toFixed(5)} ${v1.z.toFixed(5)}\n`;
-      stl += `      vertex ${v2.x.toFixed(5)} ${v2.y.toFixed(5)} ${v2.z.toFixed(5)}\n`;
-      stl += `      vertex ${v3.x.toFixed(5)} ${v3.y.toFixed(5)} ${v3.z.toFixed(5)}\n`;
-      stl += `    endloop\n  endfacet\n`;
-    }
-
-    for (let i = 0; i < indices.length; i += 3) {
-      addTriangle(vertices[indices[i]], vertices[indices[i+1]], vertices[indices[i+2]]);
-    }
-
-    stl += `endsolid wind_turbine_blade_part_${partIndex}\n`;
-    return stl;
+  // If single piece (no slicing):
+  if (sliceBoundaries.length <= 2) {
+    const partGeo = buildWatertightPartGeometry(
+      segments,
+      0,
+      segments.length - 1,
+      false,
+      false,
+      null,
+      profileParams,
+      carbonRodDia,
+      carbonRodDepthPct
+    );
+    const scene = new THREE.Scene();
+    scene.add(new THREE.Mesh(partGeo));
+    const stlBinary = exporter.parse(scene, { binary: true });
+    downloadBlob(stlBinary, 'blade.stl', 'application/octet-stream');
+    return;
   }
 
-  for (let p = 0; p < sliceBoundaries.length - 1; p++) {
+  // Multi-piece slicing (with or without interlocking joints):
+  const numParts = sliceBoundaries.length - 1;
+  const isJointsEnabled = jointParams && jointParams.enabled;
+
+  for (let p = 0; p < numParts; p++) {
     const startIndex = sliceBoundaries[p];
     const endIndex = sliceBoundaries[p + 1];
     if (startIndex >= endIndex) continue;
 
-    const stlStr = buildSliceSTL(startIndex, endIndex, p + 1);
-    
-    if (sliceBoundaries.length > 2) {
-      zip.file(`blade_part_${p + 1}.stl`, stlStr);
-    } else {
-      downloadBlob(stlStr, 'blade.stl', 'text/plain');
-      return; // Single file downloaded
-    }
+    const hasTongue = isJointsEnabled && (p < numParts - 1);
+    const hasPocket = isJointsEnabled && (p > 0);
+
+    const partGeo = buildWatertightPartGeometry(
+      segments,
+      startIndex,
+      endIndex,
+      hasTongue,
+      hasPocket,
+      jointParams,
+      profileParams,
+      carbonRodDia,
+      carbonRodDepthPct
+    );
+
+    const scene = new THREE.Scene();
+    scene.add(new THREE.Mesh(partGeo));
+    const partStlBinary = exporter.parse(scene, { binary: true });
+    const buffer = partStlBinary instanceof DataView ? partStlBinary.buffer : partStlBinary;
+    zip.file(`blade_part_${p + 1}.stl`, buffer);
   }
 
-  if (sliceBoundaries.length > 2) {
-    const content = await zip.generateAsync({ type: 'blob' });
-    const url = URL.createObjectURL(content);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'blade_sliced_stls.zip';
-    a.click();
-  }
+  const content = await zip.generateAsync({ type: 'blob' });
+  const url = URL.createObjectURL(content);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = isJointsEnabled ? 'blade_sliced_joints_stls.zip' : 'blade_sliced_stls.zip';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 /* ── OBJ Export (3D Mesh) ── */
-export async function exportOBJ(segments, carbonRodDia = 0, carbonRodDepthPct = 100, leRadiusMod = 1.0, teThicknessMm = 0.0, teFlapDeg = 0.0, sliceHeightMm = 0) {
-  const numPoints = 30;
-  const totalPointsPerSegment = numPoints * 2;
-  const vertices = [];
-  
-  const hasHole = carbonRodDia > 0;
-  const holeR = (carbonRodDia / 1000) / 2;
-  const holeEndIndex = hasHole ? Math.max(0, Math.floor((carbonRodDepthPct / 100) * (segments.length - 1))) : -1;
-  
-  const segmentOffsets = [];
-  let currentVertexCount = 0;
-
-  segments.forEach((seg, i) => {
-    segmentOffsets.push(currentVertexCount);
-    const isHoleLayer = hasHole && i <= holeEndIndex;
-
-    const profile = getAirfoilProfile(seg.thicknessRatio, numPoints, seg.chord, leRadiusMod, teThicknessMm, teFlapDeg, seg.customInterpolator);
-    const twistRad = (seg.twistDeg * Math.PI) / 180;
-    const cosT = Math.cos(twistRad);
-    const sinT = Math.sin(twistRad);
-
-    // Outer skin
-    profile.forEach((pt) => {
-      // Convert from meters to millimeters for 3D printing
-      let x = pt.x * seg.chord * 1000;
-      let z = pt.y * seg.chord * 1000;
-      let rotX = x * cosT - z * sinT;
-      let rotZ = x * sinT + z * cosT;
-      vertices.push({ x: rotX, y: seg.r * 1000, z: rotZ });
-    });
-    currentVertexCount += totalPointsPerSegment;
-
-    // Inner skin
-    if (isHoleLayer) {
-      for (let j = 0; j < totalPointsPerSegment; j++) {
-        const theta = (j / totalPointsPerSegment) * Math.PI * 2;
-        const hX = Math.cos(theta) * holeR * 1000;
-        const hZ = Math.sin(theta) * holeR * 1000;
-        vertices.push({ x: hX, y: seg.r * 1000, z: hZ });
-      }
-      currentVertexCount += totalPointsPerSegment;
-    }
-  });
-
-  const R_mm = segments[segments.length - 1].r * 1000;
-  const sliceBoundaries = [0];
-  
-  if (sliceHeightMm > 0 && sliceHeightMm < R_mm) {
-    let currentLimit = sliceHeightMm;
-    for (let i = 0; i < segments.length; i++) {
-      if (segments[i].r * 1000 >= currentLimit) {
-        sliceBoundaries.push(i);
-        currentLimit += sliceHeightMm;
-      }
-    }
-  }
-  sliceBoundaries.push(segments.length - 1);
-
+export async function exportOBJ(
+  segments,
+  carbonRodDia = 0,
+  carbonRodDepthPct = 100,
+  leRadiusMod = 1.0,
+  teThicknessMm = 0.0,
+  teFlapDeg = 0.0,
+  sliceHeightMm = 0
+) {
+  const profileParams = { leRadiusMod, teThicknessMm, teFlapDeg };
+  const sliceBoundaries = computeSliceBoundaries(segments, sliceHeightMm);
   const zip = new JSZip();
 
-  function buildSliceOBJ(startIndex, endIndex, partIndex) {
-    let obj = `# AeroBlade Pro - 3D Mesh Export Part ${partIndex}\n`;
-    const indices = [];
+  function geometryToOBJ(geo, partName) {
+    let obj = `# AeroBlade Pro - ${partName}\n`;
+    const pos = geo.attributes.position.array;
+    const idx = geo.index ? geo.index.array : null;
 
-    // Dump ALL vertices (OBJ indices are 1-based). It's slightly inefficient to dump all vertices for every slice, but OBJ allows unused vertices.
-    // For smaller files, we could filter vertices, but since this is local export, it's fine.
-    vertices.forEach(v => {
-      obj += `v ${v.x.toFixed(5)} ${v.y.toFixed(5)} ${v.z.toFixed(5)}\n`;
-    });
-
-    // Stitch outer skin
-    for (let i = startIndex; i < endIndex; i++) {
-      const curOffset = segmentOffsets[i];
-      const nextOffset = segmentOffsets[i + 1];
-      for (let j = 0; j < totalPointsPerSegment; j++) {
-        const nextJ = (j + 1) % totalPointsPerSegment;
-        indices.push(curOffset + j, curOffset + nextJ, nextOffset + j);
-        indices.push(nextOffset + j, curOffset + nextJ, nextOffset + nextJ);
-      }
+    for (let i = 0; i < pos.length; i += 3) {
+      obj += `v ${pos[i].toFixed(4)} ${pos[i + 1].toFixed(4)} ${pos[i + 2].toFixed(4)}\n`;
     }
+    obj += `g ${partName}\ns 1\n`;
 
-    // Stitch inner skin
-    if (hasHole) {
-      const localHoleEnd = Math.min(holeEndIndex, endIndex);
-      for (let i = startIndex; i < localHoleEnd; i++) {
-        const curInnerOffset = segmentOffsets[i] + totalPointsPerSegment;
-        const nextInnerOffset = segmentOffsets[i + 1] + totalPointsPerSegment;
-        for (let j = 0; j < totalPointsPerSegment; j++) {
-          const nextJ = (j + 1) % totalPointsPerSegment;
-          indices.push(curInnerOffset + j, nextInnerOffset + j, curInnerOffset + nextJ);
-          indices.push(nextInnerOffset + j, nextInnerOffset + nextJ, curInnerOffset + nextJ);
-        }
-      }
-    }
-
-    // Root cap
-    if (hasHole && startIndex <= holeEndIndex) {
-      const curOffset = segmentOffsets[startIndex];
-      const curInnerOffset = curOffset + totalPointsPerSegment;
-      for (let j = 0; j < totalPointsPerSegment; j++) {
-        const nextJ = (j + 1) % totalPointsPerSegment;
-        indices.push(curOffset + j, curInnerOffset + j, curOffset + nextJ);
-        indices.push(curOffset + nextJ, curInnerOffset + j, curInnerOffset + nextJ);
+    if (idx) {
+      for (let i = 0; i < idx.length; i += 3) {
+        obj += `f ${idx[i] + 1} ${idx[i + 1] + 1} ${idx[i + 2] + 1}\n`;
       }
     } else {
-      for (let j = 1; j < totalPointsPerSegment - 1; j++) {
-        indices.push(segmentOffsets[startIndex], segmentOffsets[startIndex] + j + 1, segmentOffsets[startIndex] + j);
+      for (let i = 0; i < pos.length / 3; i += 3) {
+        obj += `f ${i + 1} ${i + 2} ${i + 3}\n`;
       }
     }
-
-    // Tip cap
-    const tipOffset = segmentOffsets[endIndex];
-    if (hasHole && endIndex <= holeEndIndex) {
-      const tipInnerOffset = tipOffset + totalPointsPerSegment;
-      for (let j = 0; j < totalPointsPerSegment; j++) {
-        const nextJ = (j + 1) % totalPointsPerSegment;
-        indices.push(tipOffset + j, tipOffset + nextJ, tipInnerOffset + j);
-        indices.push(tipOffset + nextJ, tipInnerOffset + nextJ, tipInnerOffset + j);
-      }
-    } else {
-      for (let j = 1; j < totalPointsPerSegment - 1; j++) {
-        indices.push(tipOffset, tipOffset + j, tipOffset + j + 1);
-      }
-    }
-
-    obj += `o blade_part_${partIndex}\n`;
-    for (let i = 0; i < indices.length; i += 3) {
-      // OBJ indices are 1-based
-      obj += `f ${indices[i] + 1} ${indices[i+1] + 1} ${indices[i+2] + 1}\n`;
-    }
-
     return obj;
   }
 
-  for (let p = 0; p < sliceBoundaries.length - 1; p++) {
+  if (sliceBoundaries.length <= 2) {
+    const geo = buildWatertightPartGeometry(
+      segments,
+      0,
+      segments.length - 1,
+      false,
+      false,
+      null,
+      profileParams,
+      carbonRodDia,
+      carbonRodDepthPct
+    );
+    const objStr = geometryToOBJ(geo, 'blade');
+    downloadBlob(objStr, 'blade.obj', 'text/plain;charset=utf-8;');
+    return;
+  }
+
+  const numParts = sliceBoundaries.length - 1;
+  for (let p = 0; p < numParts; p++) {
     const startIndex = sliceBoundaries[p];
     const endIndex = sliceBoundaries[p + 1];
     if (startIndex >= endIndex) continue;
 
-    const objStr = buildSliceOBJ(startIndex, endIndex, p + 1);
-    
-    if (sliceBoundaries.length > 2) {
-      zip.file(`blade_part_${p + 1}.obj`, objStr);
-    } else {
-      downloadBlob(objStr, 'blade.obj', 'text/plain');
-      return;
-    }
+    const geo = buildWatertightPartGeometry(
+      segments,
+      startIndex,
+      endIndex,
+      false,
+      false,
+      null,
+      profileParams,
+      carbonRodDia,
+      carbonRodDepthPct
+    );
+    const objStr = geometryToOBJ(geo, `blade_part_${p + 1}`);
+    zip.file(`blade_part_${p + 1}.obj`, objStr);
   }
 
-  if (sliceBoundaries.length > 2) {
-    const content = await zip.generateAsync({ type: 'blob' });
-    const url = URL.createObjectURL(content);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'blade_sliced_objs.zip';
-    a.click();
-  }
+  const content = await zip.generateAsync({ type: 'blob' });
+  const url = URL.createObjectURL(content);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'blade_sliced_objs.zip';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 /* ── ASC Export (Point Cloud) ── */
@@ -470,7 +322,16 @@ export async function exportASC(segments, carbonRodDia = 0, carbonRodDepthPct = 
     segmentOffsets.push(currentVertexCount);
     const isHoleLayer = hasHole && i <= holeEndIndex;
 
-    const profile = getAirfoilProfile(seg.thicknessRatio, numPoints, seg.chord, leRadiusMod, teThicknessMm, teFlapDeg, seg.customInterpolator);
+    const profile = getAirfoilProfile(
+      seg.thicknessRatio,
+      numPoints,
+      seg.chord,
+      leRadiusMod,
+      teThicknessMm,
+      teFlapDeg,
+      seg.customInterpolator,
+      seg.airfoil
+    );
     const twistRad = (seg.twistDeg * Math.PI) / 180;
     const cosT = Math.cos(twistRad);
     const sinT = Math.sin(twistRad);
@@ -572,7 +433,8 @@ export function exportJSON(bladeParams, windSpeed, tsr) {
 
 /* ── Shared download helper ── */
 function downloadBlob(content, filename, mimeType) {
-  const blob = new Blob([content], { type: mimeType });
+  const data = content instanceof DataView ? content.buffer : content;
+  const blob = new Blob([data], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.setAttribute('href', url);
@@ -580,19 +442,72 @@ function downloadBlob(content, filename, mimeType) {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
 /* ── Gear STL Export ── */
 export function exportGearSTL(geometries) {
   const scene = new THREE.Scene();
-  geometries.forEach(g => {
+  geometries.forEach((g) => {
     const mesh = new THREE.Mesh(g.geo);
     scene.add(mesh);
   });
 
   const exporter = new STLExporter();
-  const stlString = exporter.parse(scene);
-
-  downloadBlob(stlString, 'gear_assembly.stl', 'text/plain');
+  const stlString = exporter.parse(scene, { binary: true });
+  downloadBlob(stlString, 'gear_assembly.stl', 'application/octet-stream');
 }
+
+/* ── Multi-Part Watertight ZIP Gear Export for Slicers ── */
+export async function exportGearZipSTL(stagesData) {
+  const zip = new JSZip();
+  const exporter = new STLExporter();
+
+  // 1. Export each stage gear and pinion individually
+  stagesData.forEach((stage, idx) => {
+    const stageNum = idx + 1;
+    const stageGeos = stage.geometries || [];
+
+    stageGeos.forEach((g) => {
+      const scene = new THREE.Scene();
+      const mesh = new THREE.Mesh(g.geo.clone());
+      scene.add(mesh);
+
+      const isPinion = g.isPinion;
+      const teeth = isPinion ? stage.params.pinionTeeth : stage.params.numTeeth;
+      const mod = isPinion ? stage.params.pinionModule : stage.params.module;
+      const partName = isPinion
+        ? `Stage_${stageNum}_Pinion_${teeth}T_m${mod.toFixed(1)}mm.stl`
+        : `Stage_${stageNum}_Gear_${teeth}T_m${mod.toFixed(1)}mm.stl`;
+
+      const stlData = exporter.parse(scene, { binary: true });
+      zip.file(partName, stlData);
+    });
+  });
+
+  // 2. Export combined assembled drivetrain
+  const fullScene = new THREE.Scene();
+  stagesData.forEach((stage) => {
+    const stageGeos = stage.geometries || [];
+    stageGeos.forEach((g) => {
+      const cloned = g.geo.clone();
+      cloned.rotateZ(stage.rotationOffset);
+      cloned.translate(stage.position[0], stage.position[1], stage.position[2]);
+      cloned.rotateX(Math.PI / 2);
+      fullScene.add(new THREE.Mesh(cloned));
+    });
+  });
+
+  const fullStl = exporter.parse(fullScene, { binary: true });
+  zip.file('Complete_Drivetrain_Assembly.stl', fullStl);
+
+  // Generate and download ZIP
+  const content = await zip.generateAsync({ type: 'blob' });
+  const url = URL.createObjectURL(content);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `drivetrain_3d_print_pack_${Date.now()}.zip`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
