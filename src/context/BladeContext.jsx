@@ -135,6 +135,8 @@ export const PRESETS = {
   },
 };
 
+const DEFAULT_PARAMS = PRESETS.highTorqueMicro400.params;
+
 function loadBladeParams() {
   try {
     const val = localStorage.getItem('aeroblade_params_v2');
