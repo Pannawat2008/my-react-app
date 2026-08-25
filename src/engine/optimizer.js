@@ -259,3 +259,85 @@ function runFineTune(
 
   setTimeout(processFineBatch, 0);
 }
+
+/**
+ * Calculate Theoretical Schmitz BEM Optimal Chord & Twist
+ * Evaluates the exact Schmitz analytical formula accounting for wake rotation:
+ *   phi(r) = (2/3) * arctan(R / (lambda * r))
+ *   chord(r) = (16 * pi * r) / (B * Cl_opt) * sin^2(phi / 2)
+ *   twist(r) = phi(r) - alpha_opt
+ *
+ * @param {number} radiusMm - Rotor radius in mm
+ * @param {number} tsr - Design Tip Speed Ratio
+ * @param {number} numBlades - Number of blades (e.g. 3)
+ * @param {string} rootAirfoil - Root section airfoil name
+ * @param {string} midAirfoil - Mid section airfoil name
+ * @param {string} tipAirfoil - Tip section airfoil name
+ * @returns {Object} { root: { chordMm, twistDeg }, mid: { chordMm, twistDeg }, tip: { chordMm, twistDeg } }
+ */
+export function calculateSchmitzOptimum(
+  radiusMm,
+  tsr,
+  numBlades = 3,
+  rootAirfoil = 'SG6043',
+  midAirfoil = 'SG6043',
+  tipAirfoil = 'SG6043'
+) {
+  const R = (radiusMm || 400) / 1000;
+  const B = numBlades || 3;
+  const lambda = Math.max(1.5, tsr || 4.5);
+
+  // Representative station radial positions
+  const rRoot = 0.18 * R;
+  const rMid = 0.50 * R;
+  const rTip = 0.95 * R;
+
+  function evaluateStation(r, airfoil) {
+    const lambda_r = lambda * (r / R);
+    // Inflow angle with Schmitz wake rotation factor
+    const phiRad = (2 / 3) * Math.atan(1 / Math.max(0.01, lambda_r));
+    const phiDeg = (phiRad * 180) / Math.PI;
+
+    // Design Cl and alpha_opt for standard airfoils
+    let clOpt = 1.05;
+    let alphaOpt = 5.5; // degrees
+
+    if (airfoil === 'SG6043') {
+      clOpt = 1.25;
+      alphaOpt = 5.0;
+    } else if (airfoil === 'S809') {
+      clOpt = 0.95;
+      alphaOpt = 6.2;
+    } else if (airfoil === 'NACA4412') {
+      clOpt = 1.05;
+      alphaOpt = 5.5;
+    } else if (airfoil === 'DU91W2250' || airfoil === 'FFAW3241') {
+      clOpt = 1.10;
+      alphaOpt = 7.0;
+    }
+
+    // Schmitz optimal chord: c = (16 * pi * r) / (B * Cl) * sin^2(phi / 2)
+    const sinHalfPhi = Math.sin(phiRad / 2);
+    const chordM = (16 * Math.PI * r * Math.pow(sinHalfPhi, 2)) / (B * clOpt);
+    const chordMm = Math.round(chordM * 1000);
+
+    // Optimal twist: beta = phi - alpha_opt
+    const twistDeg = parseFloat((phiDeg - alphaOpt).toFixed(1));
+
+    return { chordMm, twistDeg };
+  }
+
+  const rootRes = evaluateStation(rRoot, rootAirfoil);
+  const midRes = evaluateStation(rMid, midAirfoil);
+  const tipRes = evaluateStation(rTip, tipAirfoil);
+
+  // Clamp root chord to realistic maximum (max 20% of blade radius)
+  const maxRootChordMm = Math.round(R * 200);
+  const clampedRootChord = Math.min(maxRootChordMm, Math.max(30, rootRes.chordMm));
+
+  return {
+    root: { chordMm: clampedRootChord, twistDeg: Math.min(28, Math.max(10, rootRes.twistDeg)) },
+    mid: { chordMm: Math.max(15, midRes.chordMm), twistDeg: Math.max(4, midRes.twistDeg) },
+    tip: { chordMm: Math.max(10, tipRes.chordMm), twistDeg: Math.max(0.5, tipRes.twistDeg) },
+  };
+}

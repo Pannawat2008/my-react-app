@@ -1,5 +1,6 @@
 import { useState, useCallback, memo, useEffect } from 'react';
 import { useBlade } from '../context/BladeContext';
+import { calculateSchmitzOptimum } from '../engine/optimizer';
 
 /* ── Educational Help Tooltip Badge ── */
 export function HelpTooltip({ text }) {
@@ -545,6 +546,47 @@ export default function ControlsPanel() {
 
         {openAccordions.regional && (
           <div className="cp-accordion-content animate-slideDown">
+            <div style={{ marginBottom: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <button
+                type="button"
+                className="cp-btn cp-btn-secondary"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(16, 185, 129, 0.15))',
+                  border: '1px solid rgba(59, 130, 246, 0.4)',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  padding: '8px 12px',
+                  borderRadius: 6,
+                }}
+                onClick={() => {
+                  const opt = calculateSchmitzOptimum(
+                    bladeParams.radiusMm,
+                    designTsr,
+                    bladeParams.numBlades,
+                    bladeParams.root.airfoil,
+                    bladeParams.mid.airfoil,
+                    bladeParams.tip.airfoil
+                  );
+                  setBladeParams((prev) => ({
+                    ...prev,
+                    root: { ...prev.root, chordMm: opt.root.chordMm, twistDeg: opt.root.twistDeg },
+                    mid: { ...prev.mid, chordMm: opt.mid.chordMm, twistDeg: opt.mid.twistDeg },
+                    tip: { ...prev.tip, chordMm: opt.tip.chordMm, twistDeg: opt.tip.twistDeg },
+                  }));
+                }}
+              >
+                <span>📐</span>
+                <span>Auto-Compute Schmitz BEM Formula</span>
+              </button>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.4, textAlign: 'center' }}>
+                Evaluates theoretical Schmitz equations: <code>c(r) = (16πr/BC_l)·sin²(φ/2)</code> &amp; <code>β = φ - α_opt</code>
+              </div>
+            </div>
+
             <RegionEditor
               title="🟤 Root Section (Structural / Hub Attachment)"
               regionKey="root"
