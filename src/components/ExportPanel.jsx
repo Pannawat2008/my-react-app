@@ -37,6 +37,20 @@ export default function ExportPanel() {
   } = useBlade();
 
   const safeParams = bladeParams || {};
+  const safeJointParams = {
+    enabled: true,
+    wallOffset: 3.0,
+    frontCut: 5.0,
+    backCut: 10.0,
+    extrusionDepth: 8,
+    clearance: 0.15,
+    glueChannel: true,
+    glueChannelWidth: 0.5,
+    glueChannelDepth: 0.3,
+    explodedDistance: 0,
+    ...(jointParams || {}),
+  };
+
   const R_mm = safeParams.radiusMm || 500;
   const numBlades = safeParams.numBlades || 3;
   const holeR_mm = (safeParams.carbonRodDia || 0) / 2;
@@ -93,7 +107,7 @@ export default function ExportPanel() {
   };
 
   const updateJointParam = (key, value) => {
-    setJointParams(prev => ({ ...prev, [key]: value }));
+    setJointParams(prev => ({ ...(prev || {}), [key]: value }));
   };
 
   const sliceHeightForExport = sliceEnabled ? maxZHeight : 0;
@@ -126,7 +140,7 @@ export default function ExportPanel() {
             {optimizing ? (
               <>
                 <span className="optimize-spinner" />
-                Optimizing… {(optimizeProgress * 100).toFixed(0)}%
+                Optimizing… {((optimizeProgress || 0) * 100).toFixed(0)}%
               </>
             ) : (
               <>
@@ -169,7 +183,7 @@ export default function ExportPanel() {
               <span className="cp-field-label">Max Bed Height (Z mm):</span>
               <input
                 type="number"
-                value={maxZHeight}
+                value={maxZHeight || 200}
                 onChange={(e) => setMaxZHeight(parseFloat(e.target.value) || 200)}
                 className="cp-number-input"
                 style={{ width: '100%', textAlign: 'left' }}
@@ -187,25 +201,25 @@ export default function ExportPanel() {
                 <input
                   type="checkbox"
                   className="cp-checkbox"
-                  checked={jointParams?.enabled ?? true}
+                  checked={safeJointParams.enabled}
                   onChange={(e) => updateJointParam('enabled', e.target.checked)}
                 />
                 <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Enabled</span>
               </label>
             </div>
 
-            {jointParams?.enabled && (
+            {safeJointParams.enabled && (
               <div className="joint-sliders-container">
                 {/* Wall Offset */}
                 <div className="joint-slider-row">
                   <span className="joint-slider-label">Wall Offset</span>
                   <input
                     type="range" min="0.6" max="10.0" step="0.1"
-                    value={jointParams?.wallOffset ?? 3.0}
+                    value={safeJointParams.wallOffset}
                     onChange={(e) => updateJointParam('wallOffset', parseFloat(e.target.value))}
                     className="joint-slider"
                   />
-                  <span className="joint-slider-value">{(jointParams?.wallOffset ?? 3.0).toFixed(1)} mm</span>
+                  <span className="joint-slider-value">{(safeJointParams.wallOffset ?? 3.0).toFixed(1)} mm</span>
                 </div>
 
                 {/* Front Cut (Leading Edge) */}
@@ -213,11 +227,11 @@ export default function ExportPanel() {
                   <span className="joint-slider-label">Front Cut (LE)</span>
                   <input
                     type="range" min="0.0" max="25.0" step="0.5"
-                    value={jointParams.frontCut ?? 5.0}
+                    value={safeJointParams.frontCut}
                     onChange={(e) => updateJointParam('frontCut', parseFloat(e.target.value))}
                     className="joint-slider"
                   />
-                  <span className="joint-slider-value">{(jointParams.frontCut ?? 5.0).toFixed(1)} mm</span>
+                  <span className="joint-slider-value">{(safeJointParams.frontCut ?? 5.0).toFixed(1)} mm</span>
                 </div>
 
                 {/* Back Cut (Trailing Edge) */}
@@ -225,11 +239,11 @@ export default function ExportPanel() {
                   <span className="joint-slider-label">Back Cut (TE)</span>
                   <input
                     type="range" min="0.0" max="40.0" step="0.5"
-                    value={jointParams.backCut ?? 10.0}
+                    value={safeJointParams.backCut}
                     onChange={(e) => updateJointParam('backCut', parseFloat(e.target.value))}
                     className="joint-slider"
                   />
-                  <span className="joint-slider-value">{(jointParams.backCut ?? 10.0).toFixed(1)} mm</span>
+                  <span className="joint-slider-value">{(safeJointParams.backCut ?? 10.0).toFixed(1)} mm</span>
                 </div>
 
                 {/* Tongue Depth */}
@@ -237,11 +251,11 @@ export default function ExportPanel() {
                   <span className="joint-slider-label">Tongue Depth</span>
                   <input
                     type="range" min="4" max="15" step="0.5"
-                    value={jointParams.extrusionDepth}
+                    value={safeJointParams.extrusionDepth}
                     onChange={(e) => updateJointParam('extrusionDepth', parseFloat(e.target.value))}
                     className="joint-slider"
                   />
-                  <span className="joint-slider-value">{jointParams.extrusionDepth.toFixed(1)} mm</span>
+                  <span className="joint-slider-value">{(safeJointParams.extrusionDepth ?? 8).toFixed(1)} mm</span>
                 </div>
 
                 {/* Print Clearance */}
@@ -249,11 +263,11 @@ export default function ExportPanel() {
                   <span className="joint-slider-label">Print Clearance</span>
                   <input
                     type="range" min="0.05" max="0.40" step="0.01"
-                    value={jointParams.clearance}
+                    value={safeJointParams.clearance}
                     onChange={(e) => updateJointParam('clearance', parseFloat(e.target.value))}
                     className="joint-slider"
                   />
-                  <span className="joint-slider-value">{jointParams.clearance.toFixed(2)} mm</span>
+                  <span className="joint-slider-value">{(safeJointParams.clearance ?? 0.15).toFixed(2)} mm</span>
                 </div>
 
                 {/* Glue Channel Toggle */}
@@ -263,11 +277,11 @@ export default function ExportPanel() {
                     <input
                       type="checkbox"
                       className="cp-checkbox"
-                      checked={jointParams.glueChannel}
+                      checked={safeJointParams.glueChannel}
                       onChange={(e) => updateJointParam('glueChannel', e.target.checked)}
                     />
-                    <span style={{ fontSize: 11, color: jointParams.glueChannel ? '#34d399' : 'var(--text-subtle)' }}>
-                      {jointParams.glueChannel ? '0.5×0.3 mm groove' : 'Off'}
+                    <span style={{ fontSize: 11, color: safeJointParams.glueChannel ? '#34d399' : 'var(--text-subtle)' }}>
+                      {safeJointParams.glueChannel ? '0.5×0.3 mm groove' : 'Off'}
                     </span>
                   </label>
                 </div>
@@ -277,18 +291,18 @@ export default function ExportPanel() {
                   <span className="joint-slider-label">Exploded View</span>
                   <input
                     type="range" min="0" max="50" step="1"
-                    value={jointParams.explodedDistance}
+                    value={safeJointParams.explodedDistance}
                     onChange={(e) => updateJointParam('explodedDistance', parseFloat(e.target.value))}
                     className="joint-slider"
                   />
-                  <span className="joint-slider-value">{jointParams.explodedDistance.toFixed(0)} mm</span>
+                  <span className="joint-slider-value">{(safeJointParams.explodedDistance ?? 0).toFixed(0)} mm</span>
                 </div>
 
                 {/* Joint Info */}
                 <div className="joint-info-strip">
                   <span>🧩 Parts: {estimatedPrintParts}</span>
                   <span>📐 Joints: {Math.max(0, estimatedPrintParts - 1)}</span>
-                  <span>🔩 Gap: {(jointParams.clearance * 2).toFixed(2)} mm total</span>
+                  <span>🔩 Gap: {((safeJointParams.clearance ?? 0.15) * 2).toFixed(2)} mm total</span>
                 </div>
               </div>
             )}
@@ -326,18 +340,18 @@ export default function ExportPanel() {
           onClick={() =>
             exportSTL(
               segments,
-              bladeParams.carbonRodDia,
-              bladeParams.carbonRodDepthPct,
-              bladeParams.leRadiusMod,
-              bladeParams.teThicknessMm,
-              bladeParams.teFlapDeg,
+              safeParams.carbonRodDia || 0,
+              safeParams.carbonRodDepthPct || 100,
+              safeParams.leRadiusMod || 1.0,
+              safeParams.teThicknessMm || 0.0,
+              safeParams.teFlapDeg || 0.0,
               sliceHeightForExport,
-              sliceEnabled && jointParams.enabled ? jointParams : null
+              sliceEnabled && safeJointParams.enabled ? safeJointParams : null
             )
           }
         >
           <span className="export-icon">🖨️</span>
-          3D Print STL (.stl){sliceEnabled && jointParams.enabled ? ' + Joints' : ''}
+          3D Print STL (.stl){sliceEnabled && safeJointParams.enabled ? ' + Joints' : ''}
         </button>
 
         <button
@@ -345,11 +359,11 @@ export default function ExportPanel() {
           onClick={() =>
             exportOBJ(
               segments,
-              bladeParams.carbonRodDia,
-              bladeParams.carbonRodDepthPct,
-              bladeParams.leRadiusMod,
-              bladeParams.teThicknessMm,
-              bladeParams.teFlapDeg,
+              safeParams.carbonRodDia || 0,
+              safeParams.carbonRodDepthPct || 100,
+              safeParams.leRadiusMod || 1.0,
+              safeParams.teThicknessMm || 0.0,
+              safeParams.teFlapDeg || 0.0,
               sliceHeightForExport
             )
           }
@@ -363,9 +377,9 @@ export default function ExportPanel() {
           onClick={() =>
             exportFusionCSV(
               segments,
-              bladeParams.leRadiusMod,
-              bladeParams.teThicknessMm,
-              bladeParams.teFlapDeg
+              safeParams.leRadiusMod || 1.0,
+              safeParams.teThicknessMm || 0.0,
+              safeParams.teFlapDeg || 0.0
             )
           }
         >
@@ -378,9 +392,9 @@ export default function ExportPanel() {
           onClick={() =>
             exportAirfoilDAT(
               segments,
-              bladeParams.leRadiusMod,
-              bladeParams.teThicknessMm,
-              bladeParams.teFlapDeg
+              safeParams.leRadiusMod || 1.0,
+              safeParams.teThicknessMm || 0.0,
+              safeParams.teFlapDeg || 0.0
             )
           }
         >
@@ -393,11 +407,11 @@ export default function ExportPanel() {
           onClick={() =>
             exportASC(
               segments,
-              bladeParams.carbonRodDia,
-              bladeParams.carbonRodDepthPct,
-              bladeParams.leRadiusMod,
-              bladeParams.teThicknessMm,
-              bladeParams.teFlapDeg,
+              safeParams.carbonRodDia || 0,
+              safeParams.carbonRodDepthPct || 100,
+              safeParams.leRadiusMod || 1.0,
+              safeParams.teThicknessMm || 0.0,
+              safeParams.teFlapDeg || 0.0,
               sliceHeightForExport
             )
           }
