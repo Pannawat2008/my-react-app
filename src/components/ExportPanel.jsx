@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { useBlade } from '../context/BladeContext';
+import JsonImportModal from './JsonImportModal';
 import {
   exportCSV,
   exportFusionCSV,
@@ -429,6 +431,14 @@ export default function ExportPanel() {
       {/* ── 4. Project File Persistence ── */}
       <div className="export-section">
         <div className="export-title">💾 Project Backup &amp; Transfer</div>
+        <button
+          className="export-btn export-btn-accent"
+          style={{ background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(16, 185, 129, 0.2))', border: '1px solid rgba(59, 130, 246, 0.4)' }}
+          onClick={() => setJsonModalOpen(true)}
+        >
+          <span className="export-icon">📋</span>
+          Paste &amp; Import JSON Code
+        </button>
         <button className="export-btn" onClick={() => exportJSON(bladeParams, designWindSpeed, designTsr)}>
           <span className="export-icon">💾</span>
           Save Design Project (.json)
@@ -438,6 +448,9 @@ export default function ExportPanel() {
           Import Design Project (.json)
         </button>
       </div>
+
+      {/* Interactive JSON Code Modal */}
+      <JsonImportModal isOpen={jsonModalOpen} onClose={() => setJsonModalOpen(false)} />
     </div>
   );
 }

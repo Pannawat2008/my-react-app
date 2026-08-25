@@ -1,6 +1,7 @@
 import { useState, useCallback, memo, useEffect } from 'react';
 import { useBlade } from '../context/BladeContext';
 import { calculateSchmitzOptimum } from '../engine/optimizer';
+import JsonImportModal from './JsonImportModal';
 
 /* ── Educational Help Tooltip Badge ── */
 export function HelpTooltip({ text }) {
@@ -293,6 +294,8 @@ export default function ControlsPanel() {
   const midEnd = Math.min(0.95, mp + ml / 2);
   const R_meters = bladeParams.radiusMm / 1000;
 
+  const [jsonModalOpen, setJsonModalOpen] = useState(false);
+
   return (
     <div className="sidebar-scroll" style={{ padding: '12px 14px' }}>
       {/* ── Preset & Quick File Bar ── */}
@@ -314,6 +317,9 @@ export default function ControlsPanel() {
         </select>
 
         <div className="preset-actions-row">
+          <button className="panel-sub-btn" onClick={() => setJsonModalOpen(true)} title="Paste or Copy raw JSON code">
+            📋 JSON Code
+          </button>
           <button className="panel-sub-btn" onClick={handleSaveProject} title="Save project as JSON">
             💾 Save File
           </button>
@@ -1082,6 +1088,9 @@ export default function ControlsPanel() {
           <span>{toastMessage}</span>
         </div>
       )}
+
+      {/* ── JSON Code Import & Export Modal ── */}
+      <JsonImportModal isOpen={jsonModalOpen} onClose={() => setJsonModalOpen(false)} />
     </div>
   );
 }
