@@ -15,6 +15,7 @@ export function HelpTooltip({ text }) {
 
 /* ── Memoized Regional Airfoil & Shape Editor ── */
 const RegionEditor = memo(function RegionEditor({ title, regionKey, data, onChange }) {
+  const safeData = data || { chordMm: 50, twistDeg: 10, thicknessPct: 12, airfoil: 'SG6043' };
   const update = (field, value) => onChange(regionKey, field, value);
 
   return (
@@ -29,7 +30,7 @@ const RegionEditor = memo(function RegionEditor({ title, regionKey, data, onChan
       </div>
       <select
         className="cp-select"
-        value={data.airfoil}
+        value={safeData.airfoil || 'SG6043'}
         onChange={(e) => update('airfoil', e.target.value)}
       >
         <optgroup label="── Low Reynolds Micro (High Lift) ──">
@@ -56,10 +57,10 @@ const RegionEditor = memo(function RegionEditor({ title, regionKey, data, onChan
         </optgroup>
       </select>
 
-      {data.airfoil === 'Custom' && (
+      {safeData.airfoil === 'Custom' && (
         <div className="cp-field-row" style={{ marginTop: 6, marginBottom: 12 }}>
           <label className="cp-upload-btn">
-            {data.customPoints ? '✅ Custom .dat Loaded' : '📁 Upload Airfoil .dat'}
+            {safeData.customPoints ? '✅ Custom .dat Loaded' : '📁 Upload Airfoil .dat'}
             <input
               type="file"
               accept=".dat,.txt"
@@ -89,7 +90,7 @@ const RegionEditor = memo(function RegionEditor({ title, regionKey, data, onChan
           <input
             type="number"
             className="cp-number-input"
-            value={data.chordMm}
+            value={safeData.chordMm ?? 50}
             min="10"
             max="4000"
             onChange={(e) => update('chordMm', parseFloat(e.target.value) || 0)}
@@ -103,7 +104,7 @@ const RegionEditor = memo(function RegionEditor({ title, regionKey, data, onChan
         min="10"
         max="3000"
         step="10"
-        value={data.chordMm}
+        value={safeData.chordMm ?? 50}
         onChange={(e) => update('chordMm', parseFloat(e.target.value))}
       />
 
@@ -117,7 +118,7 @@ const RegionEditor = memo(function RegionEditor({ title, regionKey, data, onChan
           <input
             type="number"
             className="cp-number-input"
-            value={data.twistDeg}
+            value={safeData.twistDeg ?? 10}
             step="0.5"
             onChange={(e) => update('twistDeg', parseFloat(e.target.value) || 0)}
           />
@@ -130,7 +131,7 @@ const RegionEditor = memo(function RegionEditor({ title, regionKey, data, onChan
         min="-10"
         max="45"
         step="0.5"
-        value={data.twistDeg}
+        value={safeData.twistDeg ?? 10}
         onChange={(e) => update('twistDeg', parseFloat(e.target.value))}
       />
 
@@ -144,7 +145,7 @@ const RegionEditor = memo(function RegionEditor({ title, regionKey, data, onChan
           <input
             type="number"
             className="cp-number-input"
-            value={data.thicknessPct}
+            value={safeData.thicknessPct ?? 12}
             min="8"
             max="50"
             onChange={(e) => update('thicknessPct', parseFloat(e.target.value) || 0)}
@@ -158,7 +159,7 @@ const RegionEditor = memo(function RegionEditor({ title, regionKey, data, onChan
         min="8"
         max="45"
         step="1"
-        value={data.thicknessPct}
+        value={safeData.thicknessPct ?? 12}
         onChange={(e) => update('thicknessPct', parseFloat(e.target.value))}
       />
     </div>

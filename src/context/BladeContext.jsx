@@ -135,7 +135,25 @@ export const PRESETS = {
   },
 };
 
-const DEFAULT_PARAMS = PRESETS.highTorqueMicro400.params;
+function loadBladeParams() {
+  try {
+    const val = localStorage.getItem('aeroblade_params_v2');
+    if (!val) return DEFAULT_PARAMS;
+    const parsed = JSON.parse(val);
+    if (!parsed || typeof parsed !== 'object' || !parsed.root || !parsed.mid || !parsed.tip) {
+      return DEFAULT_PARAMS;
+    }
+    return {
+      ...DEFAULT_PARAMS,
+      ...parsed,
+      root: { ...DEFAULT_PARAMS.root, ...parsed.root },
+      mid: { ...DEFAULT_PARAMS.mid, ...parsed.mid },
+      tip: { ...DEFAULT_PARAMS.tip, ...parsed.tip },
+    };
+  } catch {
+    return DEFAULT_PARAMS;
+  }
+}
 
 function loadStorage(key, fallback) {
   try {
@@ -150,7 +168,7 @@ const BladeContext = createContext(null);
 
 export function BladeProvider({ children }) {
   const [bladeParams, setBladeParams, history] = useHistory(
-    loadStorage('aeroblade_params_v2', DEFAULT_PARAMS)
+    loadBladeParams()
   );
 
   const [activePreset, setActivePreset] = useState(() => loadStorage('aeroblade_preset_v2', 'highTorqueMicro400'));
