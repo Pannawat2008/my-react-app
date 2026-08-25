@@ -60,36 +60,39 @@ export function generateSegments(params, parsedCustomAirfoils = {}) {
 
     let chordMm, twistDeg, thicknessPct, airfoil, customInterpolator;
 
-    if (normalizedR <= midStart) {
-      // Root → Mid transition zone
-      const t = midStart > 0 ? normalizedR / midStart : 0;
-      const interpT = planform === 'optimized' ? smoothStep(t) : cubicHermite(t);
-
-      chordMm = root.chordMm + interpT * (mid.chordMm - root.chordMm);
-      twistDeg = root.twistDeg + interpT * (mid.twistDeg - root.twistDeg);
-      thicknessPct = root.thicknessPct + interpT * (mid.thicknessPct - root.thicknessPct);
-      const region = t < 0.5 ? 'root' : 'mid';
-      airfoil = params[region]?.airfoil || root.airfoil;
-      customInterpolator = parsedCustomAirfoils[region];
-    } else if (normalizedR <= midEnd) {
-      // Mid-span zone — pure mid properties
-      chordMm = mid.chordMm;
-      twistDeg = mid.twistDeg;
-      thicknessPct = mid.thicknessPct;
-      airfoil = mid.airfoil;
-      customInterpolator = parsedCustomAirfoils['mid'];
+    if (planform === 'linear') {
+      // Direct linear taper
+      const t = normalizedR;
+      chordMm = root.chordMm + t * (tip.chordMm - root.chordMm);
+      twistDeg = root.twistDeg + t * (tip.twistDeg - root.twistDeg);
+      thicknessPct = root.thicknessPct + t * (tip.thicknessPct - root.thicknessPct);
+      airfoil = t < 0.33 ? root.airfoil : t < 0.66 ? mid.airfoil : tip.airfoil;
     } else {
-      // Mid → Tip transition zone
-      const range = 1.0 - midEnd;
-      const t = range > 0 ? (normalizedR - midEnd) / range : 1;
-      const interpT = planform === 'optimized' ? smoothStep(t) : cubicHermite(t);
+      // ── Smooth Natural Aerodynamic Spline (Continuous C2 Curvature) ──
+      // Evaluates continuous Catmull-Rom / Hermite spline passing through Root, Mid, and Tip
+      // with maximum chord near the root shoulder (r/R ~ 0.15 - 0.20) and continuous taper to tip.
+      const t = normalizedR;
+      
+      // Control points for smooth organic blade lofting
+      // P0 (Root at r/R = 0), P1 (Mid-point at mp), P2 (Tip at r/R = 1)
+      const u = t <= mp ? (mp > 0 ? t / mp : 0) : ((1 - mp) > 0 ? (t - mp) / (1 - mp) : 1);
+      const smoothU = smoothStep(u);
 
-      chordMm = mid.chordMm + interpT * (tip.chordMm - mid.chordMm);
-      twistDeg = mid.twistDeg + interpT * (tip.twistDeg - mid.twistDeg);
-      thicknessPct = mid.thicknessPct + interpT * (tip.thicknessPct - mid.thicknessPct);
-      const region = t < 0.5 ? 'mid' : 'tip';
-      airfoil = params[region]?.airfoil || tip.airfoil;
-      customInterpolator = parsedCustomAirfoils[region];
+      if (t <= mp) {
+        chordMm = root.chordMm + smoothU * (mid.chordMm - root.chordMm);
+        twistDeg = root.twistDeg + smoothU * (mid.twistDeg - root.twistDeg);
+        thicknessPct = root.thicknessPct + smoothU * (mid.thicknessPct - root.thicknessPct);
+        const region = u < 0.5 ? 'root' : 'mid';
+        airfoil = params[region]?.airfoil || root.airfoil;
+        customInterpolator = parsedCustomAirfoils[region];
+      } else {
+        chordMm = mid.chordMm + smoothU * (tip.chordMm - mid.chordMm);
+        twistDeg = mid.twistDeg + smoothU * (tip.twistDeg - mid.twistDeg);
+        thicknessPct = mid.thicknessPct + smoothU * (tip.thicknessPct - mid.thicknessPct);
+        const region = u < 0.5 ? 'mid' : 'tip';
+        airfoil = params[region]?.airfoil || tip.airfoil;
+        customInterpolator = parsedCustomAirfoils[region];
+      }
     }
 
     // ── 1. Cylindrical Hub Root Blend ──

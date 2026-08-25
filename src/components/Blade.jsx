@@ -242,14 +242,14 @@ export default function Blade({
       {/* ── Render Watertight Blade Parts ── */}
       {partGeometries.map((part, p) => {
         const yOffset = explodedOffsets ? (explodedOffsets[p] || 0) : 0;
-        const pieceColor = isSliced ? PIECE_COLORS[p % PIECE_COLORS.length] : '#ffffff';
+        const pieceColor = isSliced ? PIECE_COLORS[p % PIECE_COLORS.length] : '#f8fafc';
         const startSeg = segments[part.startIndex || 0];
         const endSeg = segments[part.endIndex || segments.length - 1];
         const partMidY = ((startSeg?.r || 0) + (endSeg?.r || 0)) / 2 - spanOffset;
 
         return (
           <group key={`blade-part-${p}`} position={[0, yOffset, 0]}>
-            <mesh geometry={part.geo}>
+            <mesh geometry={part.geo} castShadow receiveShadow>
               {isZebraMode ? (
                 <shaderMaterial
                   ref={zebraMatRef}
@@ -263,10 +263,11 @@ export default function Blade({
                   color={isAirflowMode ? '#ffffff' : pieceColor}
                   vertexColors={isAirflowMode || (!isSliced && segmentColors !== null)}
                   wireframe={isWireframe}
-                  metalness={isAirflowMode ? 0.05 : 0.12}
-                  roughness={isAirflowMode ? 0.4 : 0.3}
-                  clearcoat={0.9}
-                  clearcoatRoughness={0.1}
+                  metalness={isAirflowMode ? 0.05 : 0.08}
+                  roughness={isAirflowMode ? 0.35 : 0.18}
+                  clearcoat={1.0}
+                  clearcoatRoughness={0.05}
+                  reflectivity={0.9}
                   side={THREE.DoubleSide}
                   transparent={isSparMode}
                   opacity={isSparMode ? 0.35 : 1.0}

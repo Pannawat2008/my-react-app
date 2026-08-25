@@ -368,7 +368,7 @@ export function buildWatertightPartGeometry(
   carbonRodDia = 0,
   carbonRodDepthPct = 100
 ) {
-  const numPoints = 30;
+  const numPoints = 48;
   const totalPointsPerSegment = numPoints * 2;
   const vertices = [];
   const indices = [];
