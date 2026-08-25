@@ -36,6 +36,8 @@ export default function ExportPanel() {
     setJointParams,
   } = useBlade();
 
+  const [jsonModalOpen, setJsonModalOpen] = useState(false);
+
   const safeParams = bladeParams || {};
   const safeJointParams = {
     enabled: true,
