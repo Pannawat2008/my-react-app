@@ -53,14 +53,6 @@ export function generateSegments(params, parsedCustomAirfoils = {}) {
   const hubTransFrac = hubRootEnabled ? Math.max(0.02, Math.min(0.3, (hubTransitionPct || 10) / 100)) : 0;
   const wingletStartFrac = wingletEnabled ? 0.90 : 1.0;
 
-  // ── Authentic Wind Turbine Blade Planform Parameters ──
-  // 1. Hub Mount: r/R in [0, 0.08] (Circular base)
-  // 2. Shoulder Transition: r/R in [0.08, shoulderFrac] (Expands to Max Chord & Root Airfoil)
-  // 3. Main Aerodynamic Span: r/R in [shoulderFrac, 0.92] (Power generation taper to Mid & Tip)
-  // 4. Streamlined Tip: r/R in [0.92, 1.00] (Aerodynamic tip fairing)
-  const shoulderFrac = Math.max(0.12, Math.min(0.25, mp * 0.4)); // shoulder at ~15-20% span
-  const hubCylDia = Math.max(12, hubDiameterMm || 28);
-
   for (let i = 0; i < count; i++) {
     // r is radial distance to segment center
     const normalizedR = (i + 0.5) / count;
@@ -68,25 +60,25 @@ export function generateSegments(params, parsedCustomAirfoils = {}) {
 
     let chordMm, twistDeg, thicknessPct, airfoil, customInterpolator;
 
-    if (normalizedR <= shoulderFrac) {
-      // ── Zone 1 & 2: Hub Cylinder → Aerodynamic Shoulder (Max Chord) ──
-      const u = normalizedR / shoulderFrac;
+    if (hubRootEnabled && normalizedR <= hubTransFrac) {
+      // ── Optional Cylindrical Hub Mount Transition (only if explicitly enabled) ──
+      const u = normalizedR / hubTransFrac;
       const blend = smoothStep(u);
+      const hubCylDia = Math.max(12, hubDiameterMm || 28);
 
-      // Transition from circular hub diameter to maximum shoulder chord
       chordMm = hubCylDia * (1 - blend) + root.chordMm * blend;
       twistDeg = 0 * (1 - blend) + root.twistDeg * blend;
       thicknessPct = 100 * (1 - blend) + root.thicknessPct * blend;
 
-      if (u < 0.25) {
+      if (u < 0.3) {
         airfoil = 'Circle';
       } else {
         airfoil = root.airfoil;
         customInterpolator = parsedCustomAirfoils['root'];
       }
     } else if (normalizedR <= mp) {
-      // ── Zone 3a: Shoulder (Max Chord) → Mid-Span ──
-      const u = (normalizedR - shoulderFrac) / Math.max(0.01, mp - shoulderFrac);
+      // ── Pure Aerodynamic Root → Mid-Span Lofting ──
+      const u = mp > 0 ? normalizedR / mp : 0;
       const blend = smoothStep(u);
 
       chordMm = root.chordMm + blend * (mid.chordMm - root.chordMm);
@@ -96,20 +88,13 @@ export function generateSegments(params, parsedCustomAirfoils = {}) {
       airfoil = params[region]?.airfoil || root.airfoil;
       customInterpolator = parsedCustomAirfoils[region];
     } else {
-      // ── Zone 3b: Mid-Span → Tip Taper ──
-      const u = (normalizedR - mp) / Math.max(0.01, 1.0 - mp);
+      // ── Pure Aerodynamic Mid-Span → Tip Lofting ──
+      const u = (1.0 - mp) > 0 ? (normalizedR - mp) / (1.0 - mp) : 1;
       const blend = smoothStep(u);
 
       chordMm = mid.chordMm + blend * (tip.chordMm - mid.chordMm);
       twistDeg = mid.twistDeg + blend * (tip.twistDeg - mid.twistDeg);
       thicknessPct = mid.thicknessPct + blend * (tip.thicknessPct - mid.thicknessPct);
-
-      // Zone 4: Tip streamlining fairing at extreme outer 8%
-      if (normalizedR > 0.92) {
-        const tipU = (normalizedR - 0.92) / 0.08;
-        chordMm *= (1.0 - 0.25 * smoothStep(tipU));
-      }
-
       const region = u < 0.5 ? 'mid' : 'tip';
       airfoil = params[region]?.airfoil || tip.airfoil;
       customInterpolator = parsedCustomAirfoils[region];
