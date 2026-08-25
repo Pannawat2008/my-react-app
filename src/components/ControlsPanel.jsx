@@ -815,6 +815,138 @@ export default function ControlsPanel() {
                   }))
                 }
               />
+
+              {/* ── Hub Root Adapter ── */}
+              <div className="cp-field-row" style={{ marginTop: 14, paddingTop: 10, borderTop: '1px solid var(--border-subtle)' }}>
+                <label className="cp-checkbox-label" style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={bladeParams.hubRootEnabled || false}
+                    onChange={(e) =>
+                      setBladeParams((prev) => ({
+                        ...prev,
+                        hubRootEnabled: e.target.checked,
+                      }))
+                    }
+                  />
+                  <span>🔩 Cylindrical Hub Root Adapter</span>
+                </label>
+                <HelpTooltip text="Transitions the root from a circular cylinder (for hub/shaft bolt mounting) into the aerodynamic airfoil." />
+              </div>
+
+              {bladeParams.hubRootEnabled && (
+                <div style={{ paddingLeft: 8, marginTop: 6, borderLeft: '2px solid var(--accent)' }}>
+                  <div className="cp-field-row">
+                    <span className="cp-field-label">Cylinder Diameter</span>
+                    <div className="cp-field-value">
+                      <span className="cp-value-highlight">{bladeParams.hubDiameterMm || 28}</span>
+                      <span className="cp-unit">mm</span>
+                    </div>
+                  </div>
+                  <input
+                    type="range"
+                    className="cp-slider"
+                    min="12"
+                    max="120"
+                    step="2"
+                    value={bladeParams.hubDiameterMm ?? 28}
+                    onChange={(e) =>
+                      setBladeParams((prev) => ({
+                        ...prev,
+                        hubDiameterMm: parseFloat(e.target.value),
+                      }))
+                    }
+                  />
+
+                  <div className="cp-field-row">
+                    <span className="cp-field-label">Transition Length</span>
+                    <div className="cp-field-value">
+                      <span className="cp-value-highlight">{bladeParams.hubTransitionPct || 10}</span>
+                      <span className="cp-unit">% span</span>
+                    </div>
+                  </div>
+                  <input
+                    type="range"
+                    className="cp-slider"
+                    min="5"
+                    max="25"
+                    step="1"
+                    value={bladeParams.hubTransitionPct ?? 10}
+                    onChange={(e) =>
+                      setBladeParams((prev) => ({
+                        ...prev,
+                        hubTransitionPct: parseFloat(e.target.value),
+                      }))
+                    }
+                  />
+                </div>
+              )}
+
+              {/* ── Parametric Tip Winglet ── */}
+              <div className="cp-field-row" style={{ marginTop: 14, paddingTop: 10, borderTop: '1px solid var(--border-subtle)' }}>
+                <label className="cp-checkbox-label" style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={bladeParams.wingletEnabled || false}
+                    onChange={(e) =>
+                      setBladeParams((prev) => ({
+                        ...prev,
+                        wingletEnabled: e.target.checked,
+                      }))
+                    }
+                  />
+                  <span>🕊️ Aerodynamic Tip Winglet</span>
+                </label>
+                <HelpTooltip text="Up-turned winglet tip suppresses induced tip vortex shedding and attenuates aerodynamic noise." />
+              </div>
+
+              {bladeParams.wingletEnabled && (
+                <div style={{ paddingLeft: 8, marginTop: 6, borderLeft: '2px solid #10b981' }}>
+                  <div className="cp-field-row">
+                    <span className="cp-field-label">Winglet Height</span>
+                    <div className="cp-field-value">
+                      <span className="cp-value-highlight">{bladeParams.wingletHeightMm || 25}</span>
+                      <span className="cp-unit">mm</span>
+                    </div>
+                  </div>
+                  <input
+                    type="range"
+                    className="cp-slider"
+                    min="5"
+                    max="100"
+                    step="5"
+                    value={bladeParams.wingletHeightMm ?? 25}
+                    onChange={(e) =>
+                      setBladeParams((prev) => ({
+                        ...prev,
+                        wingletHeightMm: parseFloat(e.target.value),
+                      }))
+                    }
+                  />
+
+                  <div className="cp-field-row">
+                    <span className="cp-field-label">Cant Angle</span>
+                    <div className="cp-field-value">
+                      <span className="cp-value-highlight">{bladeParams.wingletAngleDeg || 75}</span>
+                      <span className="cp-unit">°</span>
+                    </div>
+                  </div>
+                  <input
+                    type="range"
+                    className="cp-slider"
+                    min="30"
+                    max="90"
+                    step="5"
+                    value={bladeParams.wingletAngleDeg ?? 75}
+                    onChange={(e) =>
+                      setBladeParams((prev) => ({
+                        ...prev,
+                        wingletAngleDeg: parseFloat(e.target.value),
+                      }))
+                    }
+                  />
+                </div>
+              )}
             </div>
           </div>
         )}

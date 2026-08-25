@@ -151,33 +151,87 @@ export const airfoils = {
   }
 };
 
-// Linear interpolation function for polar data
-export function getAerodynamicCoefficients(airfoilId, alphaDeg) {
-  if (airfoilId === 'Custom') {
-    // Since custom airfoils don't provide polar data, we fall back to a generic polar (NACA4412)
-    airfoilId = 'NACA4412';
-  }
-  
-  const airfoil = airfoils[airfoilId];
-  if (!airfoil) return { cl: 0, cd: 0.1 };
+/**
+ * Viterna-Corrigan 360° Post-Stall Polar Extrapolation Model
+ * Extrapolates 2D airfoil wind tunnel polar tables across all angles of attack (-180° to +180°).
+ * Essential for accurate standstill (TSR=0), startup torque, and high-pitch aerodynamic modeling.
+ */
+function extrapolateViterna(alphaDeg, polars, AR = 10) {
+  // Normalize alpha to [-180, 180]
+  let a = alphaDeg % 360;
+  if (a > 180) a -= 360;
+  if (a < -180) a += 360;
 
-  const polars = airfoil.polars;
-  
-  // Handle out of bounds
-  if (alphaDeg <= polars[0].alpha) return { cl: polars[0].cl, cd: polars[0].cd };
-  if (alphaDeg >= polars[polars.length - 1].alpha) return { cl: polars[polars.length - 1].cl, cd: polars[polars.length - 1].cd };
+  const minAlpha = polars[0].alpha;
+  const maxAlpha = polars[polars.length - 1].alpha;
 
-  // Interpolate
-  for (let i = 0; i < polars.length - 1; i++) {
-    const p1 = polars[i];
-    const p2 = polars[i + 1];
-    if (alphaDeg >= p1.alpha && alphaDeg <= p2.alpha) {
-      const t = (alphaDeg - p1.alpha) / (p2.alpha - p1.alpha);
-      const cl = p1.cl + t * (p2.cl - p1.cl);
-      const cd = p1.cd + t * (p2.cd - p1.cd);
-      return { cl, cd };
+  // If inside normal polar range, do standard linear interpolation
+  if (a >= minAlpha && a <= maxAlpha) {
+    for (let i = 0; i < polars.length - 1; i++) {
+      const p1 = polars[i];
+      const p2 = polars[i + 1];
+      if (a >= p1.alpha && a <= p2.alpha) {
+        const t = (a - p1.alpha) / (p2.alpha - p1.alpha);
+        return {
+          cl: p1.cl + t * (p2.cl - p1.cl),
+          cd: p1.cd + t * (p2.cd - p1.cd),
+        };
+      }
     }
   }
 
-  return { cl: 0, cd: 0.1 };
+  // Viterna Post-Stall Extrapolation parameters
+  const cdMax = 1.11 + 0.018 * Math.max(1, Math.min(25, AR)); // Peak flat-plate crossflow drag (~1.30 - 1.60)
+  
+  const stallPt = polars[polars.length - 1]; // upper polar boundary (typically +30°)
+  const alphaStallRad = (stallPt.alpha * Math.PI) / 180;
+  const clStall = stallPt.cl;
+  const cdStall = stallPt.cd;
+
+  const sinStall = Math.sin(alphaStallRad);
+  const cosStall = Math.cos(alphaStallRad);
+
+  const A1 = cdMax / 2;
+  const B1 = cdMax;
+  const A2 = (clStall - cdMax * sinStall * cosStall) * (sinStall / Math.max(0.001, cosStall * cosStall));
+  const B2 = (cdStall - cdMax * sinStall * sinStall) / Math.max(0.001, cosStall);
+
+  const sign = a >= 0 ? 1 : -1;
+  const absA = Math.abs(a);
+  const rad = (absA * Math.PI) / 180;
+  const sinA = Math.sin(rad);
+  const cosA = Math.cos(rad);
+  const sin2A = Math.sin(2 * rad);
+
+  let cl = 0;
+  let cd = cdStall;
+
+  if (absA > maxAlpha && absA <= 90) {
+    cl = A1 * sin2A + A2 * (cosA * cosA / Math.max(0.001, sinA));
+    cd = B1 * sinA * sinA + B2 * cosA;
+  } else if (absA > 90 && absA <= 180) {
+    const mirrorRad = Math.PI - rad;
+    const sinM = Math.sin(mirrorRad);
+    const cosM = Math.cos(mirrorRad);
+    const sin2M = Math.sin(2 * mirrorRad);
+
+    cl = -(A1 * sin2M + A2 * (cosM * cosM / Math.max(0.001, sinM)));
+    cd = B1 * sinM * sinM + B2 * cosM;
+  }
+
+  return {
+    cl: sign * cl,
+    cd: Math.max(0.005, cd),
+  };
+}
+
+// Linear interpolation + Viterna 360° extrapolation for polar data
+export function getAerodynamicCoefficients(airfoilId, alphaDeg) {
+  if (airfoilId === 'Custom' || airfoilId === 'Circle') {
+    // For custom/cylinder roots, default to robust baseline
+    airfoilId = 'NACA4412';
+  }
+  
+  const airfoil = airfoils[airfoilId] || airfoils['NACA4412'];
+  return extrapolateViterna(alphaDeg, airfoil.polars);
 }

@@ -13,6 +13,26 @@ import { parseDatFile } from './airfoilParser';
 
 // Built-in Airfoil Coordinate DAT strings
 const BUILTIN_DAT_RAW = {
+  // Cylindrical Hub Root Section (Circle)
+  Circle: `Circular Hub Cylinder
+ 1.00000  0.00000
+ 0.95000  0.15000
+ 0.85000  0.30000
+ 0.70000  0.42000
+ 0.50000  0.50000
+ 0.30000  0.42000
+ 0.15000  0.30000
+ 0.05000  0.15000
+ 0.00000  0.00000
+ 0.05000 -0.15000
+ 0.15000 -0.30000
+ 0.30000 -0.42000
+ 0.50000 -0.50000
+ 0.70000 -0.42000
+ 0.85000 -0.30000
+ 0.95000 -0.15000
+ 1.00000  0.00000`,
+
   // Michael Selig SG6043 (10% High Lift, Low Reynolds Number)
   SG6043: `SG6043 Airfoil
  1.00000  0.00000
