@@ -53,6 +53,14 @@ export function generateSegments(params, parsedCustomAirfoils = {}) {
   const hubTransFrac = hubRootEnabled ? Math.max(0.02, Math.min(0.3, (hubTransitionPct || 10) / 100)) : 0;
   const wingletStartFrac = wingletEnabled ? 0.90 : 1.0;
 
+  // ── Authentic Wind Turbine Blade Planform Parameters ──
+  // 1. Hub Mount: r/R in [0, 0.08] (Circular base)
+  // 2. Shoulder Transition: r/R in [0.08, shoulderFrac] (Expands to Max Chord & Root Airfoil)
+  // 3. Main Aerodynamic Span: r/R in [shoulderFrac, 0.92] (Power generation taper to Mid & Tip)
+  // 4. Streamlined Tip: r/R in [0.92, 1.00] (Aerodynamic tip fairing)
+  const shoulderFrac = Math.max(0.12, Math.min(0.25, mp * 0.4)); // shoulder at ~15-20% span
+  const hubCylDia = Math.max(12, hubDiameterMm || 28);
+
   for (let i = 0; i < count; i++) {
     // r is radial distance to segment center
     const normalizedR = (i + 0.5) / count;
@@ -60,60 +68,58 @@ export function generateSegments(params, parsedCustomAirfoils = {}) {
 
     let chordMm, twistDeg, thicknessPct, airfoil, customInterpolator;
 
-    if (planform === 'linear') {
-      // Direct linear taper
-      const t = normalizedR;
-      chordMm = root.chordMm + t * (tip.chordMm - root.chordMm);
-      twistDeg = root.twistDeg + t * (tip.twistDeg - root.twistDeg);
-      thicknessPct = root.thicknessPct + t * (tip.thicknessPct - root.thicknessPct);
-      airfoil = t < 0.33 ? root.airfoil : t < 0.66 ? mid.airfoil : tip.airfoil;
-    } else {
-      // ── Smooth Natural Aerodynamic Spline (Continuous C2 Curvature) ──
-      // Evaluates continuous Catmull-Rom / Hermite spline passing through Root, Mid, and Tip
-      // with maximum chord near the root shoulder (r/R ~ 0.15 - 0.20) and continuous taper to tip.
-      const t = normalizedR;
-      
-      // Control points for smooth organic blade lofting
-      // P0 (Root at r/R = 0), P1 (Mid-point at mp), P2 (Tip at r/R = 1)
-      const u = t <= mp ? (mp > 0 ? t / mp : 0) : ((1 - mp) > 0 ? (t - mp) / (1 - mp) : 1);
-      const smoothU = smoothStep(u);
+    if (normalizedR <= shoulderFrac) {
+      // ── Zone 1 & 2: Hub Cylinder → Aerodynamic Shoulder (Max Chord) ──
+      const u = normalizedR / shoulderFrac;
+      const blend = smoothStep(u);
 
-      if (t <= mp) {
-        chordMm = root.chordMm + smoothU * (mid.chordMm - root.chordMm);
-        twistDeg = root.twistDeg + smoothU * (mid.twistDeg - root.twistDeg);
-        thicknessPct = root.thicknessPct + smoothU * (mid.thicknessPct - root.thicknessPct);
-        const region = u < 0.5 ? 'root' : 'mid';
-        airfoil = params[region]?.airfoil || root.airfoil;
-        customInterpolator = parsedCustomAirfoils[region];
-      } else {
-        chordMm = mid.chordMm + smoothU * (tip.chordMm - mid.chordMm);
-        twistDeg = mid.twistDeg + smoothU * (tip.twistDeg - mid.twistDeg);
-        thicknessPct = mid.thicknessPct + smoothU * (tip.thicknessPct - mid.thicknessPct);
-        const region = u < 0.5 ? 'mid' : 'tip';
-        airfoil = params[region]?.airfoil || tip.airfoil;
-        customInterpolator = parsedCustomAirfoils[region];
-      }
-    }
+      // Transition from circular hub diameter to maximum shoulder chord
+      chordMm = hubCylDia * (1 - blend) + root.chordMm * blend;
+      twistDeg = 0 * (1 - blend) + root.twistDeg * blend;
+      thicknessPct = 100 * (1 - blend) + root.thicknessPct * blend;
 
-    // ── 1. Cylindrical Hub Root Blend ──
-    if (hubRootEnabled && normalizedR <= hubTransFrac) {
-      const hubT = normalizedR / hubTransFrac; // 0 = pure cylinder, 1 = root airfoil
-      const blend = smoothStep(hubT);
-      const targetCylDia = Math.max(10, hubDiameterMm || 28);
-
-      chordMm = targetCylDia * (1 - blend) + chordMm * blend;
-      twistDeg = 0 * (1 - blend) + twistDeg * blend;
-      thicknessPct = 100 * (1 - blend) + thicknessPct * blend;
-      if (hubT < 0.3) {
+      if (u < 0.25) {
         airfoil = 'Circle';
+      } else {
+        airfoil = root.airfoil;
+        customInterpolator = parsedCustomAirfoils['root'];
       }
+    } else if (normalizedR <= mp) {
+      // ── Zone 3a: Shoulder (Max Chord) → Mid-Span ──
+      const u = (normalizedR - shoulderFrac) / Math.max(0.01, mp - shoulderFrac);
+      const blend = smoothStep(u);
+
+      chordMm = root.chordMm + blend * (mid.chordMm - root.chordMm);
+      twistDeg = root.twistDeg + blend * (mid.twistDeg - root.twistDeg);
+      thicknessPct = root.thicknessPct + blend * (mid.thicknessPct - root.thicknessPct);
+      const region = u < 0.5 ? 'root' : 'mid';
+      airfoil = params[region]?.airfoil || root.airfoil;
+      customInterpolator = parsedCustomAirfoils[region];
+    } else {
+      // ── Zone 3b: Mid-Span → Tip Taper ──
+      const u = (normalizedR - mp) / Math.max(0.01, 1.0 - mp);
+      const blend = smoothStep(u);
+
+      chordMm = mid.chordMm + blend * (tip.chordMm - mid.chordMm);
+      twistDeg = mid.twistDeg + blend * (tip.twistDeg - mid.twistDeg);
+      thicknessPct = mid.thicknessPct + blend * (tip.thicknessPct - mid.thicknessPct);
+
+      // Zone 4: Tip streamlining fairing at extreme outer 8%
+      if (normalizedR > 0.92) {
+        const tipU = (normalizedR - 0.92) / 0.08;
+        chordMm *= (1.0 - 0.25 * smoothStep(tipU));
+      }
+
+      const region = u < 0.5 ? 'mid' : 'tip';
+      airfoil = params[region]?.airfoil || tip.airfoil;
+      customInterpolator = parsedCustomAirfoils[region];
     }
 
-    // ── 2. Parametric Out-of-Plane Pre-Bend & Sweep ──
+    // ── Parametric Out-of-Plane Pre-Bend & Sweep ──
     let preBendOffset = (preBendMm / 1000) * Math.pow(normalizedR, 2);
     let sweepOffset = Math.sin((sweepAngleDeg * Math.PI) / 180) * r * Math.pow(normalizedR, 1.5);
 
-    // ── 3. Parametric Tip Winglet Curvature ──
+    // ── Parametric Tip Winglet Curvature ──
     let wingletOffsetZ = 0;
     if (wingletEnabled && normalizedR >= wingletStartFrac) {
       const wT = (normalizedR - wingletStartFrac) / (1.0 - wingletStartFrac);
