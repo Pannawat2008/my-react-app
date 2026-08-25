@@ -77,6 +77,46 @@ export function sliceBladeSection(bladeParams, normalizedSpan, parsedCustomAirfo
     });
   }
 
+  // Calculate Carbon Fiber Rod Center & Skin Clearance
+  const rodDia_mm = bladeParams.carbonRodDia || 0;
+  const rodDepthPct = bladeParams.carbonRodDepthPct ?? 100;
+  const rodPosPct = Math.max(15, Math.min(60, bladeParams.carbonRodPosPct ?? 30)); // 30% from LE
+  const hasRodAtSlice = rodDia_mm > 0 && (span * 100) <= rodDepthPct;
+  const rodRadius_m = (rodDia_mm / 1000) / 2;
+
+  // Normalized chord position x in [0, 1]
+  const rodX_norm = rodPosPct / 100;
+  let rodCamberY_m = 0;
+  let localThickness_m = thicknessRatio * chord_m;
+
+  if (customInterpolator) {
+    const y_up = customInterpolator.getUpper(rodX_norm);
+    const y_lo = customInterpolator.getLower(rodX_norm);
+    const actualThickness = customInterpolator.maxThickness || 0.12;
+    const scale = thicknessRatio / Math.max(0.01, actualThickness);
+    rodCamberY_m = ((y_up + y_lo) / 2) * scale * chord_m;
+    localThickness_m = (y_up - y_lo) * scale * chord_m;
+  } else {
+    const isSymmetric = activeAirfoil === 'NACA0012';
+    const m = isSymmetric ? 0 : 0.04;
+    const p = isSymmetric ? 0 : 0.4;
+    if (m > 0 && p > 0) {
+      if (rodX_norm < p) {
+        rodCamberY_m = (m / (p * p)) * (2 * p * rodX_norm - rodX_norm * rodX_norm) * chord_m;
+      } else {
+        rodCamberY_m = (m / Math.pow(1 - p, 2)) * ((1 - 2 * p) + 2 * p * rodX_norm - rodX_norm * rodX_norm) * chord_m;
+      }
+    }
+  }
+
+  const rodCenter = {
+    x: (0.25 - rodX_norm) * chord_m,
+    y: rodCamberY_m,
+  };
+
+  const topClearance_mm = Math.max(0, ((localThickness_m / 2) - rodRadius_m) * 1000);
+  const bottomClearance_mm = topClearance_mm;
+
   return {
     span,
     r_meters: currentR,
@@ -90,5 +130,12 @@ export function sliceBladeSection(bladeParams, normalizedSpan, parsedCustomAirfo
     lowerSurface,
     camberLine,
     rawProfilePoints: rawPoints,
+    hasRod: hasRodAtSlice,
+    rodDia_mm,
+    rodRadius_m,
+    rodCenter,
+    rodPosPct,
+    topClearance_mm,
+    bottomClearance_mm,
   };
 }

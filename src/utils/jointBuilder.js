@@ -102,12 +102,49 @@ export function offsetAirfoilProfile(profile, chordMm, offsetMm, frontCutMm = 5.
   return result;
 }
 
+/**
+ * Calculates the exact (x, z) centroid on the camber line at the maximum-thickness
+ * core (default: 30% chord from LE) so the carbon fiber spar rod has maximum and equal
+ * skin clearance on both upper and lower surfaces.
+ */
+export function getAirfoilSparCenter(seg, profileParams = {}) {
+  const chordMm = (seg?.chord || 0.05) * 1000;
+  const rodPosPct = Math.max(0.15, Math.min(0.60, (profileParams.carbonRodPosPct || 30) / 100));
+  const x = rodPosPct; // 0 to 1
+
+  let camberY = 0;
+  if (seg?.customInterpolator) {
+    const y_up = seg.customInterpolator.getUpper(x);
+    const y_lo = seg.customInterpolator.getLower(x);
+    const actualThickness = seg.customInterpolator.maxThickness || 0.12;
+    const scale = (seg.thicknessRatio || 0.12) / Math.max(0.01, actualThickness);
+    camberY = ((y_up + y_lo) / 2) * scale;
+  } else {
+    // NACA 4-digit analytical camber line
+    const isSymmetric = seg?.airfoil === 'NACA0012';
+    const m = isSymmetric ? 0 : 0.04;
+    const p = isSymmetric ? 0 : 0.4;
+    if (m > 0 && p > 0) {
+      if (x < p) {
+        camberY = (m / (p * p)) * (2 * p * x - x * x);
+      } else {
+        camberY = (m / Math.pow(1 - p, 2)) * ((1 - 2 * p) + 2 * p * x - x * x);
+      }
+    }
+  }
+
+  return {
+    px: (0.25 - x) * chordMm,
+    pz: camberY * chordMm,
+  };
+}
+
 /* ────────────────────────────────────────────────
    2. Build tongue (boss) preview triangles
    ──────────────────────────────────────────────── */
 
 export function buildTongueTriangles(
-  seg, wallOffset, extrusionDepth, cutPlaneYMm, carbonRodRadiusMm, profileParams, frontCut = 5.0, backCut = 10.0
+  seg, wallOffset, extrusionDepth, cutPlaneYMm, carbonRodRadiusMm, profileParams = {}, frontCut = 5.0, backCut = 10.0
 ) {
   const numPoints = 30;
   const profile = getAirfoilProfile(
@@ -146,12 +183,13 @@ export function buildTongueTriangles(
 
   // Tip cap (normal points +Y)
   if (carbonRodRadiusMm > 0) {
+    const sparCenter = getAirfoilSparCenter(seg, profileParams);
     const holePoints = 30;
     const holeTipRing = [];
     for (let j = 0; j < holePoints; j++) {
       const theta = (j / holePoints) * Math.PI * 2;
-      const hx = Math.cos(theta) * carbonRodRadiusMm;
-      const hz = Math.sin(theta) * carbonRodRadiusMm;
+      const hx = sparCenter.px + Math.cos(theta) * carbonRodRadiusMm;
+      const hz = sparCenter.pz + Math.sin(theta) * carbonRodRadiusMm;
       holeTipRing.push(transformPoint(hx, hz, tipY));
     }
 
@@ -221,12 +259,13 @@ export function buildPocketTriangles(
 
   // Pocket cavity bottom floor (normal points -Y, back towards entrance)
   if (carbonRodRadiusMm > 0) {
+    const sparCenter = getAirfoilSparCenter(seg, profileParams);
     const holePoints = 30;
     const holeBottomRing = [];
     for (let j = 0; j < holePoints; j++) {
       const theta = (j / holePoints) * Math.PI * 2;
-      const hx = Math.cos(theta) * carbonRodRadiusMm;
-      const hz = Math.sin(theta) * carbonRodRadiusMm;
+      const hx = sparCenter.px + Math.cos(theta) * carbonRodRadiusMm;
+      const hz = sparCenter.pz + Math.sin(theta) * carbonRodRadiusMm;
       holeBottomRing.push(transformPoint(hx, hz, bottomY));
     }
 
@@ -419,12 +458,15 @@ export function buildWatertightPartGeometry(
     outerOffsets.push(layerOuter);
 
     if (isHoleLayer) {
+      const sparCenter = getAirfoilSparCenter(seg, profileParams);
       const layerInner = [];
       for (let j = 0; j < totalPointsPerSegment; j++) {
         const theta = (j / totalPointsPerSegment) * Math.PI * 2;
-        const hX = Math.cos(theta) * holeR;
-        const hZ = Math.sin(theta) * holeR;
-        layerInner.push(addV(hX, yMm, hZ));
+        const px = sparCenter.px + Math.cos(theta) * holeR;
+        const pz = sparCenter.pz + Math.sin(theta) * holeR;
+        const rotX = px * cosT - pz * sinT;
+        const rotZ = px * sinT + pz * cosT;
+        layerInner.push(addV(rotX, yMm, rotZ));
       }
       innerOffsets.push(layerInner);
     } else {
@@ -519,10 +561,13 @@ export function buildWatertightPartGeometry(
 
     // (c) Pocket bottom floor: at rootY + pocketDepth, normal points -Y
     if (rootInner) {
+      const rootSpar = getAirfoilSparCenter(rootSeg, profileParams);
       const pocketHole = [];
       for (let j = 0; j < totalPointsPerSegment; j++) {
         const theta = (j / totalPointsPerSegment) * Math.PI * 2;
-        pocketHole.push(addV(Math.cos(theta) * holeR, rootY + pocketDepth, Math.sin(theta) * holeR));
+        const px = rootSpar.px + Math.cos(theta) * holeR;
+        const pz = rootSpar.pz + Math.sin(theta) * holeR;
+        pocketHole.push(transformRoot(px, pz, rootY + pocketDepth));
       }
       for (let j = 0; j < totalPointsPerSegment; j++) {
         const nj = (j + 1) % totalPointsPerSegment;
@@ -604,10 +649,13 @@ export function buildWatertightPartGeometry(
 
     // (c) Tongue tip cap: at tipY + tongueDepth, normal points +Y
     if (tipInner) {
+      const tipSpar = getAirfoilSparCenter(tipSeg, profileParams);
       const tongueHole = [];
       for (let j = 0; j < totalPointsPerSegment; j++) {
         const theta = (j / totalPointsPerSegment) * Math.PI * 2;
-        tongueHole.push(addV(Math.cos(theta) * holeR, tipY + tongueDepth, Math.sin(theta) * holeR));
+        const px = tipSpar.px + Math.cos(theta) * holeR;
+        const pz = tipSpar.pz + Math.sin(theta) * holeR;
+        tongueHole.push(transformTip(px, pz, tipY + tongueDepth));
       }
       for (let j = 0; j < totalPointsPerSegment; j++) {
         const nj = (j + 1) % totalPointsPerSegment;

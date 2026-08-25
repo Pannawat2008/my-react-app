@@ -1076,6 +1076,30 @@ export default function ControlsPanel() {
                       }))
                     }
                   />
+
+                  <div className="cp-field-row" style={{ marginTop: 8 }}>
+                    <span className="cp-field-label">
+                      Chordwise Location (x/c)
+                      <HelpTooltip text="Position of the carbon rod along the chord. 30% aligns the rod directly with the maximum thickness core and camber centroid for maximum wall clearance." />
+                    </span>
+                    <div className="cp-field-value">
+                      <span className="cp-value-highlight">{bladeParams.carbonRodPosPct ?? 30}%</span>
+                    </div>
+                  </div>
+                  <input
+                    type="range"
+                    className="cp-slider"
+                    min="20"
+                    max="50"
+                    step="1"
+                    value={bladeParams.carbonRodPosPct ?? 30}
+                    onChange={(e) =>
+                      setBladeParams((prev) => ({
+                        ...prev,
+                        carbonRodPosPct: parseFloat(e.target.value),
+                      }))
+                    }
+                  />
                 </>
               )}
             </div>

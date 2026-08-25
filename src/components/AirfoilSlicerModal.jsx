@@ -112,6 +112,37 @@ export default function AirfoilSlicerModal() {
             {/* Quarter-Chord / Pitch Axis Marker */}
             <circle cx={mapX(0)} cy={mapY(0)} r="4" fill="#ef4444" />
             <text x={mapX(0)} y={mapY(0) - 10} textAnchor="middle" fill="#ef4444" fontSize="10" fontWeight="bold">Pitch Axis (0.25c)</text>
+
+            {/* Carbon Fiber Spar Rod Circle */}
+            {sliceData.hasRod && (
+              <g>
+                <circle
+                  cx={mapX(sliceData.rodCenter?.x ?? 0)}
+                  cy={mapY(sliceData.rodCenter?.y ?? 0)}
+                  r={Math.max(3, (sliceData.rodRadius_m || 0.002) * scale)}
+                  fill="#0f172a"
+                  stroke="#38bdf8"
+                  strokeWidth="2"
+                  strokeDasharray="2 1"
+                />
+                <circle
+                  cx={mapX(sliceData.rodCenter?.x ?? 0)}
+                  cy={mapY(sliceData.rodCenter?.y ?? 0)}
+                  r="2.5"
+                  fill="#38bdf8"
+                />
+                <text
+                  x={mapX(sliceData.rodCenter?.x ?? 0)}
+                  y={mapY(sliceData.rodCenter?.y ?? 0) - (sliceData.rodRadius_m || 0.002) * scale - 6}
+                  textAnchor="middle"
+                  fill="#38bdf8"
+                  fontSize="9.5"
+                  fontWeight="bold"
+                >
+                  Carbon Spar (Ø{sliceData.rodDia_mm}mm @ {sliceData.rodPosPct}%c)
+                </text>
+              </g>
+            )}
           </svg>
         </div>
 
@@ -136,6 +167,23 @@ export default function AirfoilSlicerModal() {
           <div className="slicer-stat-card">
             <span className="slicer-stat-label">Max Thickness</span>
             <span className="slicer-stat-val">{sliceData.maxThickness_mm.toFixed(1)} mm</span>
+          </div>
+          <div className="slicer-stat-card">
+            <span className="slicer-stat-label">Spar Skin Clearance</span>
+            <span
+              className="slicer-stat-val"
+              style={{
+                color: !sliceData.hasRod
+                  ? 'var(--text-muted)'
+                  : sliceData.topClearance_mm < 0.6
+                  ? '#ef4444'
+                  : sliceData.topClearance_mm < 1.2
+                  ? '#f59e0b'
+                  : '#34d399',
+              }}
+            >
+              {sliceData.hasRod ? `±${sliceData.topClearance_mm.toFixed(1)} mm` : 'No Spar'}
+            </span>
           </div>
         </div>
       </div>

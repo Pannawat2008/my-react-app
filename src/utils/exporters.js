@@ -2,7 +2,7 @@ import { getAirfoilProfile } from './airfoilProfile';
 import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
 import * as THREE from 'three';
 import JSZip from 'jszip';
-import { buildWatertightPartGeometry, computeSliceBoundaries } from './jointBuilder';
+import { buildWatertightPartGeometry, computeSliceBoundaries, getAirfoilSparCenter } from './jointBuilder';
 
 /* ── CSV Export ── */
 export function exportCSV(bemResults) {
@@ -346,13 +346,16 @@ export async function exportASC(segments, carbonRodDia = 0, carbonRodDepthPct = 
     });
     currentVertexCount += totalPointsPerSegment;
 
-    // Inner skin
+    // Inner skin (Spar hole)
     if (isHoleLayer) {
+      const sparCenter = getAirfoilSparCenter(seg, { carbonRodPosPct: 30 });
       for (let j = 0; j < totalPointsPerSegment; j++) {
         const theta = (j / totalPointsPerSegment) * Math.PI * 2;
-        const hX = Math.cos(theta) * holeR * 1000;
-        const hZ = Math.sin(theta) * holeR * 1000;
-        vertices.push({ x: hX, y: seg.r * 1000, z: hZ });
+        const px = sparCenter.px + Math.cos(theta) * holeR * 1000;
+        const pz = sparCenter.pz + Math.sin(theta) * holeR * 1000;
+        const rotX = px * cosT - pz * sinT;
+        const rotZ = px * sinT + pz * cosT;
+        vertices.push({ x: rotX, y: seg.r * 1000, z: rotZ });
       }
       currentVertexCount += totalPointsPerSegment;
     }
