@@ -197,10 +197,45 @@ export default function Blade({
     return geo;
   }, [totalR, showSpar, viewMode, centerBlade]);
 
+  const isAirflowMode = viewMode === 'airflow';
   const isWireframe = viewMode === 'wireframe';
   const isSparMode = showSpar || viewMode === 'spar';
   const isRibsMode = viewMode === 'ribs';
   const isZebraMode = viewMode === 'zebra';
+
+  /* ── Apply Aerodynamic Flow State Vertex Colors in Airflow Mode ── */
+  useMemo(() => {
+    if (!isAirflowMode || !bemSegments || bemSegments.length === 0) return;
+
+    const minR = segments[0]?.r || 0.05;
+    const maxR = segments[segments.length - 1]?.r || 1.0;
+    const spanLen = maxR - minR || 1.0;
+
+    partGeometries.forEach((part) => {
+      const geo = part.geo;
+      const posAttr = geo.getAttribute('position');
+      if (!posAttr) return;
+
+      const colors = new Float32Array(posAttr.count * 3);
+      const color = new THREE.Color();
+
+      for (let i = 0; i < posAttr.count; i++) {
+        const y = posAttr.getY(i) + spanOffset;
+        const t = Math.max(0, Math.min(1, (y - minR) / spanLen));
+        const segIdx = Math.min(bemSegments.length - 1, Math.floor(t * (bemSegments.length - 1)));
+        const seg = bemSegments[segIdx] || bemSegments[0];
+
+        const hex = seg?.flowStateColor || (seg?.alphaDeg > 14 ? '#ef4444' : seg?.alphaDeg > 11.5 ? '#f59e0b' : '#10b981');
+        color.set(hex);
+        colors[i * 3] = color.r;
+        colors[i * 3 + 1] = color.g;
+        colors[i * 3 + 2] = color.b;
+      }
+
+      geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      if (geo.attributes.color) geo.attributes.color.needsUpdate = true;
+    });
+  }, [isAirflowMode, bemSegments, partGeometries, segments, spanOffset]);
 
   return (
     <group rotation={[0, 0, Math.PI / 2]}>
@@ -225,11 +260,11 @@ export default function Blade({
                 />
               ) : (
                 <meshPhysicalMaterial
-                  color={pieceColor}
-                  vertexColors={!isSliced && segmentColors !== null}
+                  color={isAirflowMode ? '#ffffff' : pieceColor}
+                  vertexColors={isAirflowMode || (!isSliced && segmentColors !== null)}
                   wireframe={isWireframe}
-                  metalness={0.12}
-                  roughness={0.3}
+                  metalness={isAirflowMode ? 0.05 : 0.12}
+                  roughness={isAirflowMode ? 0.4 : 0.3}
                   clearcoat={0.9}
                   clearcoatRoughness={0.1}
                   side={THREE.DoubleSide}

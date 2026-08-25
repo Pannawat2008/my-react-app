@@ -4,8 +4,60 @@ export const AIR_DENSITY = 1.225; // kg/m^3
 export const KINEMATIC_VISCOSITY = 1.46e-5; // m^2/s
 
 /**
+ * 3D Rotational Stall Delay Correction (Du-Selig & Snel Model)
+ * Accounts for centrifugal and Coriolis pumping effects on rotating blades,
+ * which delays flow separation and enhances lift at inboard/mid stations.
+ */
+function apply3DRotationalCorrection(cl2D, cd2D, r, R, chord, tsr, alphaDeg) {
+  const rOverR = Math.max(0.01, Math.min(1.0, r / R));
+  const chordOverR = Math.max(0.01, chord / r);
+  const speedRatio = Math.max(0.1, tsr * rOverR);
+
+  // Du-Selig 3D Lift Augmentation factor
+  const d = 1.0;
+  const fCl = (1 / (2 * Math.PI)) * chordOverR * (speedRatio / (1 + speedRatio * speedRatio)) * Math.pow(chordOverR / 0.12, d);
+  
+  // Potential flow linear lift slope (2*pi*alpha in radians)
+  const alphaRad = (alphaDeg * Math.PI) / 180;
+  const clPotential = 2 * Math.PI * alphaRad;
+
+  // 3D Lift is augmented when operating near or beyond stall
+  let cl3D = cl2D;
+  if (alphaDeg > 6 && rOverR < 0.85) {
+    const deltaCl = Math.max(0, clPotential - cl2D);
+    cl3D = cl2D + Math.min(0.6, fCl * deltaCl);
+  }
+
+  // Snel 3D Drag Correction
+  const fCd = Math.min(0.5, Math.pow(chordOverR, 2) * 0.5);
+  const cd3D = cd2D + fCd * Math.max(0, cd2D - 0.008);
+
+  return { cl3D, cd3D };
+}
+
+/**
+ * Dynamic Reynolds Number Scaling
+ * Adjusts minimum drag and stall characteristics based on local Re.
+ */
+function applyReynoldsScaling(cl, cd, Re, refRe = 500000) {
+  const safeRe = Math.max(10000, Re || refRe);
+  // Viscous drag scales with Re^(-0.18) based on turbulent boundary layer skin friction
+  const reScaleFactor = Math.max(0.7, Math.min(2.2, Math.pow(refRe / safeRe, 0.18)));
+  const scaledCd = cd * reScaleFactor;
+
+  // At very low Re (< 80,000), laminar separation bubbles reduce peak lift slightly
+  let scaledCl = cl;
+  if (safeRe < 80000 && cl > 1.0) {
+    const rePenalty = Math.max(0.82, 1 - 0.18 * ((80000 - safeRe) / 80000));
+    scaledCl = cl * rePenalty;
+  }
+
+  return { scaledCl, scaledCd };
+}
+
+/**
  * High-Precision Blade Element Momentum (BEM) Solver
- * Computes aerodynamic forces, induction factors, Cp, and Ct.
+ * Computes aerodynamic forces, induction factors, Cp, Ct, and full airflow characterization.
  *
  * @param {Array} segments - Array of blade segments { r, chord, twistDeg, airfoil }
  * @param {Number} windSpeed - Wind speed in m/s
@@ -19,6 +71,7 @@ export function solveBEM(segments, windSpeed, rpm, R, B = 3, bladePitch = 0) {
   const safeRpm = Math.max(rpm, 0.05);
   const omega = (safeRpm * Math.PI) / 30; // Rotational speed (rad/s)
   const safeWindSpeed = Math.max(windSpeed, 0.1);
+  const actualTsr = (omega * R) / safeWindSpeed;
 
   let totalThrust = 0;
   let totalTorque = 0;
@@ -49,8 +102,12 @@ export function solveBEM(segments, windSpeed, rpm, R, B = 3, bladePitch = 0) {
     let alphaDeg = 0;
     let cl = 0;
     let cd = 0;
+    let cl2D = 0;
+    let cd2D = 0;
     let phi = 0;
     let F = 1; // Prandtl tip loss factor
+    let vRel = safeWindSpeed;
+    let Re = 100000;
 
     // BEM Iteration Loop
     for (let iter = 0; iter < maxIters; iter++) {
@@ -62,10 +119,27 @@ export function solveBEM(segments, windSpeed, rpm, R, B = 3, bladePitch = 0) {
       // Angle of Attack (alpha = phi - (twist + pitch))
       alphaDeg = phiDeg - (seg.twistDeg + bladePitch);
 
-      // Interpolated Aerodynamic coefficients from polar table / custom dat
-      const coeffs = getAerodynamicCoefficients(seg.airfoil, alphaDeg);
-      cl = coeffs.cl;
-      cd = coeffs.cd;
+      // Relative wind velocity & local Reynolds number
+      const sinPhi = Math.sin(phi);
+      vRel = sinPhi > 0.01 ? (safeWindSpeed * (1 - a)) / sinPhi : safeWindSpeed;
+      Re = (vRel * seg.chord) / KINEMATIC_VISCOSITY;
+
+      // 1. Interpolated 2D Aerodynamic coefficients from polar table
+      const rawCoeffs = getAerodynamicCoefficients(seg.airfoil, alphaDeg);
+      cl2D = rawCoeffs.cl;
+      cd2D = rawCoeffs.cd;
+
+      // 2. Reynolds Number dynamic scaling
+      const reScaled = applyReynoldsScaling(cl2D, cd2D, Re);
+
+      // 3. 3D Rotational Stall Delay correction (Du-Selig & Snel)
+      const rotCorrected = apply3DRotationalCorrection(
+        reScaled.scaledCl, reScaled.scaledCd,
+        seg.r, R, seg.chord, actualTsr, alphaDeg
+      );
+
+      cl = rotCorrected.cl3D;
+      cd = rotCorrected.cd3D;
 
       // Prandtl Combined Tip & Hub Loss Correction
       // 1. Tip Loss: F_tip = (2/pi) * arccos( e^(-(B/2) * (R-r)/(r*sin(phi))) )
@@ -129,12 +203,20 @@ export function solveBEM(segments, windSpeed, rpm, R, B = 3, bladePitch = 0) {
       }
     }
 
-    // Relative wind velocity
-    const sinPhi = Math.sin(phi);
-    const vRel = sinPhi > 0.01 ? (safeWindSpeed * (1 - a)) / sinPhi : safeWindSpeed;
+    // Aerodynamic Flow Characterization
+    const nominalStallAngle = 14.0;
+    const stallMarginDeg = nominalStallAngle - alphaDeg;
 
-    // Reynolds number estimation
-    const Re = (vRel * seg.chord) / KINEMATIC_VISCOSITY;
+    let flowState = 'attached'; // 'attached' | 'transition' | 'stalled'
+    let flowStateColor = '#10b981'; // green
+
+    if (alphaDeg > nominalStallAngle || alphaDeg < -4) {
+      flowState = 'stalled';
+      flowStateColor = '#ef4444'; // red
+    } else if (alphaDeg > nominalStallAngle - 2.5) {
+      flowState = 'transition';
+      flowStateColor = '#f59e0b'; // amber/yellow
+    }
 
     // Forces per unit length
     const dynamicPressure = 0.5 * AIR_DENSITY * Math.pow(vRel, 2);
@@ -158,8 +240,11 @@ export function solveBEM(segments, windSpeed, rpm, R, B = 3, bladePitch = 0) {
     return {
       ...seg,
       alphaDeg,
+      flowAngleDeg: (phi * 180) / Math.PI,
       cl,
       cd,
+      cl2D,
+      cd2D,
       liftToDrag,
       dT,
       dQ,
@@ -169,7 +254,11 @@ export function solveBEM(segments, windSpeed, rpm, R, B = 3, bladePitch = 0) {
       a,
       aPrime,
       F,
-      stallDetected: alphaDeg > 14 || alphaDeg < -2,
+      flowState,
+      flowStateColor,
+      stallMarginDeg,
+      stallDetected: flowState === 'stalled',
+      dynamicPressure,
     };
   });
 
@@ -185,9 +274,6 @@ export function solveBEM(segments, windSpeed, rpm, R, B = 3, bladePitch = 0) {
   // Thrust Coefficient Ct
   const forceWind = 0.5 * AIR_DENSITY * sweptArea * Math.pow(safeWindSpeed, 2);
   const ct = forceWind > 0 ? totalThrust / forceWind : 0;
-
-  // Tip Speed Ratio (TSR = omega * R / V)
-  const actualTsr = (omega * R) / safeWindSpeed;
 
   return {
     segments: results,

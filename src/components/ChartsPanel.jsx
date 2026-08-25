@@ -57,11 +57,19 @@ export default function ChartsPanel() {
     name: `${i + 1}`,
     r: seg.r.toFixed(2),
     cl_cd: parseFloat((seg.liftToDrag || (seg.cd > 0 ? seg.cl / seg.cd : 0)).toFixed(2)),
-    alpha: parseFloat(seg.alphaDeg.toFixed(1)),
+    alpha: parseFloat((seg.alphaDeg || 0).toFixed(1)),
+    flowAngle: parseFloat((seg.flowAngleDeg || 0).toFixed(1)),
+    cl: parseFloat((seg.cl || 0).toFixed(3)),
+    cl2D: parseFloat((seg.cl2D || seg.cl || 0).toFixed(3)),
+    cd: parseFloat((seg.cd || 0).toFixed(4)),
+    re: parseFloat(((seg.Re || 0) / 1000).toFixed(1)), // in thousands (k)
     lift: parseFloat((seg.dT || 0).toFixed(1)),
     torque: parseFloat((seg.dQ || 0).toFixed(1)),
     a: parseFloat((seg.a || 0).toFixed(3)),
     aPrime: parseFloat((seg.aPrime || 0).toFixed(3)),
+    flowState: seg.flowState || 'attached',
+    flowStateColor: seg.flowStateColor || '#10b981',
+    stallMargin: parseFloat((seg.stallMarginDeg || 0).toFixed(1)),
   }));
 
   const tabs = [
@@ -69,6 +77,7 @@ export default function ChartsPanel() {
     'Forces & Torque',
     'Power Curve (Cp)',
     'Induction Factors (a, a\')',
+    '💨 Airflow & 3D Stall',
   ];
 
   const axisStyle = { fontSize: 10, fill: 'var(--text-subtle)' };
@@ -255,6 +264,91 @@ export default function ChartsPanel() {
                 />
               </LineChart>
             </ResponsiveContainer>
+          </div>
+        )}
+
+        {/* ── Tab 4: Airflow Characterization & 3D Stall ── */}
+        {activeTab === 4 && (
+          <div className="chart-wrapper animate-fadeIn" style={{ width: '100%', height: '100%', minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className="chart-axis-badges">
+              <span className="chart-axis-badge left">🌪️ 3D Rotational Lift (Cl 3D) vs 2D Polar (Cl 2D)</span>
+              <span className="chart-axis-badge right">🔬 Local Re (×10³), α (deg)</span>
+            </div>
+
+            {/* Station Status Badges Row */}
+            <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
+              {segData.map((s, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    padding: '3px 8px',
+                    borderRadius: 6,
+                    fontSize: 10,
+                    background: s.flowStateColor + '22',
+                    border: `1px solid ${s.flowStateColor}`,
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                  }}
+                >
+                  <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>S{s.name}</span>{' '}
+                  <span style={{ color: s.flowStateColor }}>
+                    {s.flowState === 'attached' ? '🟢 Attached' : s.flowState === 'transition' ? '🟡 Trans' : '🔴 Stall'}
+                  </span>{' '}
+                  <span style={{ color: 'var(--text-subtle)' }}>α={s.alpha}° Re={s.re}k</span>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ flex: 1, minHeight: 0 }}>
+              <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={100}>
+                <LineChart data={segData} margin={{ top: 8, right: 30, left: -10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+                  <XAxis dataKey="name" stroke="var(--text-subtle)" tick={axisStyle} label={{ value: 'Segment (Root ➔ Tip)', position: 'insideBottom', offset: -2, style: axisStyle }} />
+                  <YAxis yAxisId="left" stroke="#10b981" tick={axisStyle} domain={[0, 'auto']} />
+                  <YAxis yAxisId="right" orientation="right" stroke="#8b5cf6" tick={axisStyle} />
+                  <Tooltip content={<SegmentTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: 11, paddingTop: 4 }} />
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="cl"
+                    name="3D Rotational Lift (Cl 3D)"
+                    stroke="#10b981"
+                    strokeWidth={2.5}
+                    dot={{ r: 3, fill: '#10b981' }}
+                  />
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="cl2D"
+                    name="2D Wind Tunnel Polar (Cl 2D)"
+                    stroke="#06b6d4"
+                    strokeDasharray="4 4"
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="re"
+                    name="Local Reynolds No (Re × 10³)"
+                    stroke="#8b5cf6"
+                    strokeWidth={2}
+                    dot={{ r: 3, fill: '#8b5cf6' }}
+                  />
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="alpha"
+                    name="Local AoA α (°)"
+                    stroke="#f59e0b"
+                    strokeWidth={2}
+                    dot={{ r: 2, fill: '#f59e0b' }}
+                  />
+                  <ReferenceLine yAxisId="right" y={14} stroke="#ef4444" strokeDasharray="3 3" label={{ value: 'Stall α=14°', fill: '#ef4444', fontSize: 9 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         )}
       </div>

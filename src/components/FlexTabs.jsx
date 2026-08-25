@@ -408,6 +408,13 @@ export const ViewportTab = () => {
             📏 Dimensions
           </button>
           <button
+            className={`cad-tool-btn ${viewMode === 'airflow' ? 'active' : ''}`}
+            onClick={() => setViewMode(viewMode === 'airflow' ? 'solid' : 'airflow')}
+            title="Aerodynamic Flow & Stall Separation Heatmap"
+          >
+            💨 Flow
+          </button>
+          <button
             className={`cad-tool-btn ${showForceVectors ? 'active' : ''}`}
             onClick={() => setShowForceVectors(!showForceVectors)}
             title="Toggle Lift/Drag Force Vector Arrows"
