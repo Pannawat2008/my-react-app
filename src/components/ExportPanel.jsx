@@ -36,9 +36,10 @@ export default function ExportPanel() {
     setJointParams,
   } = useBlade();
 
-  const R_mm = bladeParams.radiusMm || 500;
-  const numBlades = bladeParams.numBlades || 3;
-  const holeR_mm = (bladeParams.carbonRodDia || 0) / 2;
+  const safeParams = bladeParams || {};
+  const R_mm = safeParams.radiusMm || 500;
+  const numBlades = safeParams.numBlades || 3;
+  const holeR_mm = (safeParams.carbonRodDia || 0) / 2;
 
   // Approximate solid blade volume in cm^3
   const volumeCm3 = (segments || []).reduce((acc, seg, i) => {
@@ -52,8 +53,8 @@ export default function ExportPanel() {
     } else {
       drMm = ((segments[i + 1].r - segments[i - 1].r) / 2) * 1000;
     }
-    const chordMm = seg.chord * 1000;
-    const thickRatio = seg.thicknessRatio || 0.12;
+    const chordMm = (seg?.chord || 0.05) * 1000;
+    const thickRatio = seg?.thicknessRatio || 0.12;
     const airfoilAreaMm2 = 0.68 * chordMm * (chordMm * thickRatio);
     const holeAreaMm2 = Math.PI * holeR_mm * holeR_mm;
     const netAreaMm2 = Math.max(0, airfoilAreaMm2 - holeAreaMm2);
@@ -137,7 +138,7 @@ export default function ExportPanel() {
 
           {optimizeBestCp > 0 && !optimizing && (
             <div className="optimize-result animate-fadeIn" style={{ marginTop: 10, padding: 8, background: 'var(--accent-bg)', borderRadius: 6, border: '1px solid var(--accent-border)', fontSize: 12, color: 'var(--text-primary)' }}>
-              ✨ Optimized Solution: <strong>Cp = {optimizeBestCp.toFixed(3)}</strong> (Torque: {optimizeBestTorque.toFixed(1)} N·m)
+              ✨ Optimized Solution: <strong>Cp = {(optimizeBestCp || 0).toFixed(3)}</strong> (Torque: {(optimizeBestTorque || 0).toFixed(1)} N·m)
             </div>
           )}
         </div>
@@ -155,7 +156,7 @@ export default function ExportPanel() {
             <input
               type="checkbox"
               className="cp-checkbox"
-              checked={sliceEnabled}
+              checked={sliceEnabled || false}
               onChange={(e) => setSliceEnabled(e.target.checked)}
             />
             <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
@@ -186,25 +187,25 @@ export default function ExportPanel() {
                 <input
                   type="checkbox"
                   className="cp-checkbox"
-                  checked={jointParams.enabled}
+                  checked={jointParams?.enabled ?? true}
                   onChange={(e) => updateJointParam('enabled', e.target.checked)}
                 />
                 <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Enabled</span>
               </label>
             </div>
 
-            {jointParams.enabled && (
+            {jointParams?.enabled && (
               <div className="joint-sliders-container">
                 {/* Wall Offset */}
                 <div className="joint-slider-row">
                   <span className="joint-slider-label">Wall Offset</span>
                   <input
                     type="range" min="0.6" max="10.0" step="0.1"
-                    value={jointParams.wallOffset}
+                    value={jointParams?.wallOffset ?? 3.0}
                     onChange={(e) => updateJointParam('wallOffset', parseFloat(e.target.value))}
                     className="joint-slider"
                   />
-                  <span className="joint-slider-value">{jointParams.wallOffset.toFixed(1)} mm</span>
+                  <span className="joint-slider-value">{(jointParams?.wallOffset ?? 3.0).toFixed(1)} mm</span>
                 </div>
 
                 {/* Front Cut (Leading Edge) */}

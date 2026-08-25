@@ -272,17 +272,17 @@ function AppContent() {
               Evaluating multi-zone chord, twist, and airfoil distributions...
             </div>
             <div className="optimize-modal-progress-bar">
-              <div className="optimize-modal-progress-fill" style={{ width: `${optimizeProgress * 100}%` }} />
+              <div className="optimize-modal-progress-fill" style={{ width: `${((optimizeProgress || 0) * 100).toFixed(0)}%` }} />
             </div>
             <div className="optimize-modal-stats">
               <div>
-                Progress: <strong>{(optimizeProgress * 100).toFixed(0)}%</strong>
+                Progress: <strong>{((optimizeProgress || 0) * 100).toFixed(0)}%</strong>
               </div>
               <div>
-                Best Cp: <strong>{optimizeBestCp.toFixed(4)}</strong>
+                Best Cp: <strong>{(optimizeBestCp || 0).toFixed(4)}</strong>
               </div>
               <div>
-                Best Torque: <strong>{optimizeBestTorque.toFixed(1)} N·m</strong>
+                Best Torque: <strong>{(optimizeBestTorque || 0).toFixed(1)} N·m</strong>
               </div>
             </div>
           </div>
