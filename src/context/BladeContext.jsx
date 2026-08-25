@@ -13,11 +13,11 @@ export const PRESETS = {
       radiusMm: 400,
       numSegments: 20,
       midPosition: 0.45,
-      midLength: 0.16,
+      midLength: 0.15,
       planform: 'optimized',
-      root: { chordMm: 92, twistDeg: 34.0, thicknessPct: 12, airfoil: 'SG6043' },
-      mid:  { chordMm: 62, twistDeg: 15.5, thicknessPct: 10, airfoil: 'SG6043' },
-      tip:  { chordMm: 32, twistDeg: 4.5,  thicknessPct: 10, airfoil: 'SG6043' },
+      root: { chordMm: 68, twistDeg: 18.5, thicknessPct: 14, airfoil: 'SG6043' },
+      mid:  { chordMm: 46, twistDeg: 8.2,  thicknessPct: 10, airfoil: 'SG6043' },
+      tip:  { chordMm: 22, twistDeg: 1.5,  thicknessPct: 10, airfoil: 'SG6043' },
       carbonRodDia: 4,
       carbonRodDepthPct: 85,
       leRadiusMod: 1.0,
@@ -35,7 +35,7 @@ export const PRESETS = {
       customAirfoils: { root: null, mid: null, tip: null },
     },
     designWindSpeed: 3.6,
-    designTsr: 3.8,
+    designTsr: 4.5,
   },
   microLowWind400: {
     label: '🍃  Micro 400mm Low-Wind (3.6 m/s, 30Ω Load)',
@@ -155,7 +155,7 @@ export function BladeProvider({ children }) {
 
   const [activePreset, setActivePreset] = useState(() => loadStorage('aeroblade_preset_v2', 'highTorqueMicro400'));
   const [designWindSpeed, setDesignWindSpeed] = useState(() => loadStorage('aeroblade_design_wind', 3.6));
-  const [designTsr, setDesignTsr] = useState(() => loadStorage('aeroblade_design_tsr', 3.8));
+  const [designTsr, setDesignTsr] = useState(() => loadStorage('aeroblade_design_tsr', 4.5));
   const [viewMode, setViewMode] = useState('solid'); // 'solid' | 'wireframe' | 'ribs' | 'spar' | 'zebra'
   const [showSpar, setShowSpar] = useState(false);
   const [sliceModalOpen, setSliceModalOpen] = useState(false);

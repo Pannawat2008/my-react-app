@@ -340,6 +340,24 @@ export function getAirfoilProfile(
 ) {
   const points = [];
 
+  // True analytical circle for cylindrical hub root adapter
+  if (airfoilName === 'Circle') {
+    const radius = 0.5;
+    for (let i = 0; i <= numPoints; i++) {
+      const theta = (i / numPoints) * Math.PI;
+      const x = 0.5 - 0.5 * Math.cos(theta);
+      const y = Math.sin(theta) * radius;
+      points.push({ x: 0.25 - x, y });
+    }
+    for (let i = numPoints - 1; i > 0; i--) {
+      const theta = (i / numPoints) * Math.PI;
+      const x = 0.5 - 0.5 * Math.cos(theta);
+      const y = -Math.sin(theta) * radius;
+      points.push({ x: 0.25 - x, y });
+    }
+    return points;
+  }
+
   // Determine active interpolator (Custom file OR built-in dataset)
   let activeInterpolator = customInterpolator;
   if (!activeInterpolator && BUILTIN_INTERPOLATORS[airfoilName]) {
