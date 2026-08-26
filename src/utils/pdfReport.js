@@ -16,9 +16,17 @@ export function createPDFDocument(bladeParams, windSpeed, tsr, bemResults, power
   const margin = 20;
   const contentWidth = pageWidth - margin * 2;
 
-  const R = bladeParams.radiusMm / 1000;
-  const omega = (tsr * windSpeed) / R;
+  const safeParams = bladeParams || {};
+  const safeBem = bemResults || {};
+  const safeWindSpeed = typeof windSpeed === 'number' ? windSpeed : 10;
+  const safeTsr = typeof tsr === 'number' ? tsr : 6;
+
+  const R = (safeParams.radiusMm || 500) / 1000;
+  const omega = (safeTsr * safeWindSpeed) / Math.max(0.01, R);
   const rpm = (omega * 60) / (2 * Math.PI);
+  const totalPower = safeBem.totalPower ?? 0;
+  const totalThrust = safeBem.totalThrust ?? 0;
+  const cp = safeBem.cp ?? 0;
 
   // ─── Helper Functions ───
   function drawHeader(title, pageNum) {
@@ -135,23 +143,23 @@ export function createPDFDocument(bladeParams, windSpeed, tsr, bemResults, power
 
   y = drawKVRow(y, 'Blade Length (R)', `${R.toFixed(2)} m`);
   y = drawKVRow(y, 'Rotor Diameter', `${(R * 2).toFixed(2)} m`);
-  y = drawKVRow(y, 'Number of Segments', `${bladeParams.numSegments}`);
-  y = drawKVRow(y, 'Planform Shape', bladeParams.planform === 'optimized' ? 'Optimized Curve' : 'Linear Taper');
-  y = drawKVRow(y, 'Mid-Span Position', `${((bladeParams.midPosition ?? 0.5) * 100).toFixed(0)}% of span`);
+  y = drawKVRow(y, 'Number of Segments', `${safeParams.numSegments || 20}`);
+  y = drawKVRow(y, 'Planform Shape', safeParams.planform === 'optimized' ? 'Optimized Curve' : 'Linear Taper');
+  y = drawKVRow(y, 'Mid-Span Position', `${((safeParams.midPosition ?? 0.5) * 100).toFixed(0)}% of span`);
 
   y += 10;
   y = drawSectionTitle(y, 'Operating Conditions');
 
-  y = drawKVRow(y, 'Wind Speed', `${windSpeed} m/s`);
-  y = drawKVRow(y, 'Tip Speed Ratio (λ)', `${tsr}`);
+  y = drawKVRow(y, 'Wind Speed', `${safeWindSpeed} m/s`);
+  y = drawKVRow(y, 'Tip Speed Ratio (λ)', `${safeTsr}`);
   y = drawKVRow(y, 'Rotational Speed', `${rpm.toFixed(1)} RPM`);
 
   y += 10;
   y = drawSectionTitle(y, 'Performance Summary');
 
-  y = drawKVRow(y, 'Estimated Power', `${(bemResults.totalPower / 1000).toFixed(2)} kW`);
-  y = drawKVRow(y, 'Power Coefficient (Cp)', `${bemResults.cp.toFixed(4)}`);
-  y = drawKVRow(y, 'Total Thrust', `${(bemResults.totalThrust / 1000).toFixed(2)} kN`);
+  y = drawKVRow(y, 'Estimated Power', `${(totalPower / 1000).toFixed(2)} kW`);
+  y = drawKVRow(y, 'Power Coefficient (Cp)', `${cp.toFixed(4)}`);
+  y = drawKVRow(y, 'Total Thrust', `${(totalThrust / 1000).toFixed(2)} kN`);
   y = drawKVRow(y, 'Betz Limit', '0.5926 (theoretical max)');
 
   // Footer
@@ -173,10 +181,14 @@ export function createPDFDocument(bladeParams, windSpeed, tsr, bemResults, power
 
   y = drawTableRow(y, regionHeaders, regionWidths, true);
 
+  const rootParams = safeParams.root || { airfoil: 'SG6043', chordMm: 68, twistDeg: 18.5, thicknessPct: 14 };
+  const midParams = safeParams.mid || { airfoil: 'SG6043', chordMm: 46, twistDeg: 8.2, thicknessPct: 10 };
+  const tipParams = safeParams.tip || { airfoil: 'SG6043', chordMm: 22, twistDeg: 1.5, thicknessPct: 10 };
+
   const regionData = [
-    ['Root', bladeParams.root.airfoil, bladeParams.root.chordMm, bladeParams.root.twistDeg, bladeParams.root.thicknessPct],
-    ['Mid-Span', bladeParams.mid.airfoil, bladeParams.mid.chordMm, bladeParams.mid.twistDeg, bladeParams.mid.thicknessPct],
-    ['Tip', bladeParams.tip.airfoil, bladeParams.tip.chordMm, bladeParams.tip.twistDeg, bladeParams.tip.thicknessPct],
+    ['Root', rootParams.airfoil || 'SG6043', rootParams.chordMm ?? 68, rootParams.twistDeg ?? 18.5, rootParams.thicknessPct ?? 14],
+    ['Mid-Span', midParams.airfoil || 'SG6043', midParams.chordMm ?? 46, midParams.twistDeg ?? 8.2, midParams.thicknessPct ?? 10],
+    ['Tip', tipParams.airfoil || 'SG6043', tipParams.chordMm ?? 22, tipParams.twistDeg ?? 1.5, tipParams.thicknessPct ?? 10],
   ];
 
   regionData.forEach((row, i) => {
@@ -192,9 +204,9 @@ export function createPDFDocument(bladeParams, windSpeed, tsr, bemResults, power
 
   const notes = [
     '• Chord and twist values are interpolated between regions using ' +
-      (bladeParams.planform === 'optimized' ? 'cosine (smooth)' : 'linear') + ' interpolation.',
-    `• Mid-span transition occurs at ${((bladeParams.midPosition ?? 0.5) * 100).toFixed(0)}% of blade span (${((bladeParams.midPosition ?? 0.5) * R).toFixed(2)} m from root).`,
-    `• BEM analysis uses ${bladeParams.numSegments} discrete blade elements with Prandtl tip-loss correction.`,
+      (safeParams.planform === 'optimized' ? 'cosine (smooth)' : 'linear') + ' interpolation.',
+    `• Mid-span transition occurs at ${((safeParams.midPosition ?? 0.5) * 100).toFixed(0)}% of blade span (${((safeParams.midPosition ?? 0.5) * R).toFixed(2)} m from root).`,
+    `• BEM analysis uses ${safeParams.numSegments || 20} discrete blade elements with Prandtl tip-loss correction.`,
     '• Glauert high-induction correction is applied for axial induction factors above 0.33.',
   ];
 
@@ -218,17 +230,20 @@ export function createPDFDocument(bladeParams, windSpeed, tsr, bemResults, power
 
   y = drawTableRow(y, segHeaders, segWidths, true);
 
-  bemResults.segments.forEach((seg, i) => {
-    const ld = seg.cd > 0 ? (seg.cl / seg.cd).toFixed(1) : '—';
+  const segments = (Array.isArray(safeBem.segments) && safeBem.segments.length > 0) ? safeBem.segments : [];
+  segments.forEach((seg, i) => {
+    const cl = seg.cl ?? 0;
+    const cd = seg.cd ?? 0.01;
+    const ld = cd > 0 ? (cl / cd).toFixed(1) : '—';
     const row = [
       i + 1,
-      seg.r.toFixed(2),
-      (seg.r / R).toFixed(3),
-      seg.chord.toFixed(3),
-      seg.twistDeg.toFixed(1),
-      seg.alphaDeg.toFixed(1),
-      seg.cl.toFixed(3),
-      seg.cd.toFixed(4),
+      (seg.r ?? 0).toFixed(2),
+      ((seg.r ?? 0) / Math.max(0.01, R)).toFixed(3),
+      (seg.chord ?? 0.05).toFixed(3),
+      (seg.twistDeg ?? 0).toFixed(1),
+      (seg.alphaDeg ?? 0).toFixed(1),
+      cl.toFixed(3),
+      cd.toFixed(4),
       ld,
     ];
     y = drawTableRow(y, row, segWidths, false, i % 2 === 1);
@@ -294,7 +309,7 @@ export function createPDFDocument(bladeParams, windSpeed, tsr, bemResults, power
   const observations = [
     `• Peak power output: ${(peakPower?.power ?? 0).toFixed(2)} kW at ${peakPower?.windSpeed ?? 0} m/s wind speed.`,
     `• Maximum Cp: ${(peakCp?.cp ?? 0).toFixed(4)} at ${peakCp?.windSpeed ?? 0} m/s (${(((peakCp?.cp ?? 0) / 0.5926) * 100).toFixed(1)}% of Betz limit).`,
-    `• Current operating point: ${windSpeed || 10} m/s produces ${(((bemResults?.totalPower || 0)) / 1000).toFixed(2)} kW with Cp = ${(bemResults?.cp ?? 0).toFixed(4)}.`,
+    `• Current operating point: ${safeWindSpeed} m/s produces ${(totalPower / 1000).toFixed(2)} kW with Cp = ${cp.toFixed(4)}.`,
   ];
 
   observations.forEach((obs) => {
