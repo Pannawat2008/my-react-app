@@ -1077,10 +1077,11 @@ export default function ControlsPanel() {
                     }
                   />
 
+                  {/* Chordwise Position (X/c) */}
                   <div className="cp-field-row" style={{ marginTop: 8 }}>
                     <span className="cp-field-label">
                       Chordwise Location (x/c)
-                      <HelpTooltip text="Position of the carbon rod along the chord. 30% aligns the rod directly with the maximum thickness core and camber centroid for maximum wall clearance." />
+                      <HelpTooltip text="Horizontal position of the carbon rod along the chord from leading edge. 30% aligns directly with the thickest core and mean camber line." />
                     </span>
                     <div className="cp-field-value">
                       <span className="cp-value-highlight">{bladeParams.carbonRodPosPct ?? 30}%</span>
@@ -1089,8 +1090,8 @@ export default function ControlsPanel() {
                   <input
                     type="range"
                     className="cp-slider"
-                    min="20"
-                    max="50"
+                    min="15"
+                    max="65"
                     step="1"
                     value={bladeParams.carbonRodPosPct ?? 30}
                     onChange={(e) =>
@@ -1100,6 +1101,100 @@ export default function ControlsPanel() {
                       }))
                     }
                   />
+
+                  {/* Vertical Camber Offset (ΔY) */}
+                  <div className="cp-field-row" style={{ marginTop: 8 }}>
+                    <span className="cp-field-label">
+                      Vertical Camber Offset (Δy)
+                      <HelpTooltip text="Relative vertical offset of the rod perpendicular to the mean camber line (+ shifts toward upper suction skin, - shifts toward lower pressure skin)." />
+                    </span>
+                    <div className="cp-field-value">
+                      <span className="cp-value-highlight" style={{ color: (bladeParams.carbonRodYOffsetMm || 0) === 0 ? 'var(--text)' : (bladeParams.carbonRodYOffsetMm || 0) > 0 ? '#38bdf8' : '#f59e0b' }}>
+                        {(bladeParams.carbonRodYOffsetMm || 0) > 0 ? `+${(bladeParams.carbonRodYOffsetMm || 0).toFixed(1)}` : (bladeParams.carbonRodYOffsetMm || 0).toFixed(1)} mm
+                      </span>
+                    </div>
+                  </div>
+                  <input
+                    type="range"
+                    className="cp-slider"
+                    min="-6"
+                    max="6"
+                    step="0.2"
+                    value={bladeParams.carbonRodYOffsetMm ?? 0}
+                    onChange={(e) =>
+                      setBladeParams((prev) => ({
+                        ...prev,
+                        carbonRodYOffsetMm: parseFloat(e.target.value),
+                      }))
+                    }
+                  />
+
+                  {/* Quick Relative Alignment Pills */}
+                  <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                    <button
+                      type="button"
+                      style={{ fontSize: 11, padding: '4px 8px', borderRadius: 4, background: 'rgba(56, 189, 248, 0.15)', border: '1px solid #38bdf8', color: 'var(--text)', cursor: 'pointer', fontWeight: 600 }}
+                      onClick={() => setBladeParams((prev) => ({ ...prev, carbonRodPosPct: 30, carbonRodYOffsetMm: 0 }))}
+                      title="Reset rod to optimal 30% chord on camber line"
+                    >
+                      🎯 Auto-Center
+                    </button>
+                    <button
+                      type="button"
+                      style={{ fontSize: 11, padding: '4px 8px', borderRadius: 4, background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border)', color: 'var(--text)', cursor: 'pointer' }}
+                      onClick={() => setBladeParams((prev) => ({ ...prev, carbonRodYOffsetMm: Math.min(6, (prev.carbonRodYOffsetMm || 0) + 1.0) }))}
+                      title="Shift rod 1.0mm towards upper skin"
+                    >
+                      ⬆️ Upper (+1mm)
+                    </button>
+                    <button
+                      type="button"
+                      style={{ fontSize: 11, padding: '4px 8px', borderRadius: 4, background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border)', color: 'var(--text)', cursor: 'pointer' }}
+                      onClick={() => setBladeParams((prev) => ({ ...prev, carbonRodYOffsetMm: Math.max(-6, (prev.carbonRodYOffsetMm || 0) - 1.0) }))}
+                      title="Shift rod 1.0mm towards lower skin"
+                    >
+                      ⬇️ Lower (-1mm)
+                    </button>
+                    <button
+                      type="button"
+                      style={{ fontSize: 11, padding: '4px 8px', borderRadius: 4, background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border)', color: 'var(--text)', cursor: 'pointer' }}
+                      onClick={() => setBladeParams((prev) => ({ ...prev, carbonRodPosPct: 25 }))}
+                      title="Move rod forward to 25% chord"
+                    >
+                      ⬅️ 25% LE
+                    </button>
+                    <button
+                      type="button"
+                      style={{ fontSize: 11, padding: '4px 8px', borderRadius: 4, background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border)', color: 'var(--text)', cursor: 'pointer' }}
+                      onClick={() => setBladeParams((prev) => ({ ...prev, carbonRodPosPct: 35 }))}
+                      title="Move rod aft to 35% chord"
+                    >
+                      ➡️ 35% Aft
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    style={{
+                      marginTop: 10,
+                      width: '100%',
+                      padding: '7px 10px',
+                      background: 'rgba(56, 189, 248, 0.12)',
+                      border: '1px solid rgba(56, 189, 248, 0.3)',
+                      borderRadius: 6,
+                      color: 'var(--text)',
+                      fontSize: 11.5,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6,
+                    }}
+                    onClick={() => setSliceModalOpen(true)}
+                  >
+                    <span>🔬</span> Inspect Rod Position &amp; Clearance in 2D Slicer
+                  </button>
                 </>
               )}
             </div>

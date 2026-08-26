@@ -48,6 +48,7 @@ export default function Blade({
   carbonRodDia = 0,
   carbonRodDepthPct = 100,
   carbonRodPosPct = 30,
+  carbonRodYOffsetMm = 0,
   leRadiusMod = 1.0,
   teThicknessMm = 0.0,
   teFlapDeg = 0.0,
@@ -78,7 +79,7 @@ export default function Blade({
 
   /* ── Build Watertight Geometries for Each Part ── */
   const partGeometries = useMemo(() => {
-    const profileParams = { leRadiusMod, teThicknessMm, teFlapDeg, carbonRodPosPct };
+    const profileParams = { leRadiusMod, teThicknessMm, teFlapDeg, carbonRodPosPct, carbonRodYOffsetMm };
     const isJointsEnabled = jointParams && jointParams.enabled;
 
     if (!isSliced) {
@@ -139,7 +140,7 @@ export default function Blade({
       });
     }
     return parts;
-  }, [segments, boundaries, isSliced, numParts, jointParams, leRadiusMod, teThicknessMm, teFlapDeg, carbonRodDia, carbonRodDepthPct, carbonRodPosPct, spanOffset]);
+  }, [segments, boundaries, isSliced, numParts, jointParams, leRadiusMod, teThicknessMm, teFlapDeg, carbonRodDia, carbonRodDepthPct, carbonRodPosPct, carbonRodYOffsetMm, spanOffset]);
 
   /* ── Exploded View Offsets (along Y spanwise axis in meters) ── */
   const explodedOffsets = useMemo(() => {
@@ -198,7 +199,7 @@ export default function Blade({
     const curvePoints = [];
     for (let i = 0; i <= endIdx; i++) {
       const seg = segments[i];
-      const sparCenter = getAirfoilSparCenter(seg, { carbonRodPosPct });
+      const sparCenter = getAirfoilSparCenter(seg, { carbonRodPosPct, carbonRodYOffsetMm });
       const twistRad = (-(seg.twistDeg + bladePitch) * Math.PI) / 180;
       const cosT = Math.cos(twistRad);
       const sinT = Math.sin(twistRad);
@@ -215,7 +216,7 @@ export default function Blade({
     if (curvePoints.length < 2) return null;
     const path = new THREE.CatmullRomCurve3(curvePoints);
     return new THREE.TubeGeometry(path, Math.max(20, endIdx * 4), rodRadius_m, 16, false);
-  }, [showSpar, viewMode, segments, carbonRodDia, carbonRodDepthPct, carbonRodPosPct, bladePitch, spanOffset]);
+  }, [showSpar, viewMode, segments, carbonRodDia, carbonRodDepthPct, carbonRodPosPct, carbonRodYOffsetMm, bladePitch, spanOffset]);
 
   const isAirflowMode = viewMode === 'airflow';
   const isWireframe = viewMode === 'wireframe';

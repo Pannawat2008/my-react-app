@@ -5,6 +5,7 @@ import { sliceBladeSection } from '../utils/airfoilSlicer';
 export default function AirfoilSlicerModal() {
   const {
     bladeParams,
+    setBladeParams,
     sliceModalOpen,
     setSliceModalOpen,
     activeSliceSpan,
@@ -146,8 +147,78 @@ export default function AirfoilSlicerModal() {
           </svg>
         </div>
 
+        {/* Spar Rod Relative Position Interactive Controls */}
+        {bladeParams.carbonRodDia > 0 && (
+          <div style={{ marginTop: 10, padding: '10px 14px', background: 'rgba(15, 23, 42, 0.65)', borderRadius: 8, border: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>
+                🏗️ Spar Relative Position &amp; Skin Alignment
+              </span>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  style={{ fontSize: 10.5, padding: '3px 8px', borderRadius: 4, background: 'rgba(56, 189, 248, 0.15)', border: '1px solid #38bdf8', color: 'var(--text)', cursor: 'pointer', fontWeight: 600 }}
+                  onClick={() => setBladeParams(prev => ({ ...prev, carbonRodPosPct: 30, carbonRodYOffsetMm: 0 }))}
+                  title="Reset to 30% x/c and 0mm vertical camber offset"
+                >
+                  🎯 Auto-Center
+                </button>
+                <button
+                  style={{ fontSize: 10.5, padding: '3px 8px', borderRadius: 4, background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border)', color: 'var(--text)', cursor: 'pointer' }}
+                  onClick={() => setBladeParams(prev => ({ ...prev, carbonRodYOffsetMm: Math.min(6, (prev.carbonRodYOffsetMm || 0) + 0.5) }))}
+                  title="Shift rod +0.5mm towards upper surface"
+                >
+                  ⬆️ +0.5mm
+                </button>
+                <button
+                  style={{ fontSize: 10.5, padding: '3px 8px', borderRadius: 4, background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border)', color: 'var(--text)', cursor: 'pointer' }}
+                  onClick={() => setBladeParams(prev => ({ ...prev, carbonRodYOffsetMm: Math.max(-6, (prev.carbonRodYOffsetMm || 0) - 0.5) }))}
+                  title="Shift rod -0.5mm towards lower surface"
+                >
+                  ⬇️ -0.5mm
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 3 }}>
+                  <span>Chordwise Position (X/c):</span>
+                  <strong style={{ color: '#38bdf8' }}>{bladeParams.carbonRodPosPct ?? 30}%</strong>
+                </div>
+                <input
+                  type="range"
+                  min="15"
+                  max="65"
+                  step="1"
+                  value={bladeParams.carbonRodPosPct ?? 30}
+                  onChange={(e) => setBladeParams(prev => ({ ...prev, carbonRodPosPct: parseFloat(e.target.value) }))}
+                  className="cp-slider"
+                />
+              </div>
+
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 3 }}>
+                  <span>Vertical Camber Offset (ΔY):</span>
+                  <strong style={{ color: (bladeParams.carbonRodYOffsetMm || 0) === 0 ? 'var(--text)' : (bladeParams.carbonRodYOffsetMm || 0) > 0 ? '#38bdf8' : '#f59e0b' }}>
+                    {(bladeParams.carbonRodYOffsetMm || 0) > 0 ? `+${(bladeParams.carbonRodYOffsetMm || 0).toFixed(1)}` : (bladeParams.carbonRodYOffsetMm || 0).toFixed(1)} mm
+                  </strong>
+                </div>
+                <input
+                  type="range"
+                  min="-6"
+                  max="6"
+                  step="0.2"
+                  value={bladeParams.carbonRodYOffsetMm ?? 0}
+                  onChange={(e) => setBladeParams(prev => ({ ...prev, carbonRodYOffsetMm: parseFloat(e.target.value) }))}
+                  className="cp-slider"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Telemetry Badges */}
-        <div className="slicer-stats-grid">
+        <div className="slicer-stats-grid" style={{ marginTop: 10 }}>
           <div className="slicer-stat-card">
             <span className="slicer-stat-label">Airfoil Family</span>
             <span className="slicer-stat-val">{sliceData.airfoil}</span>
@@ -161,28 +232,41 @@ export default function AirfoilSlicerModal() {
             <span className="slicer-stat-val">{sliceData.twistDeg.toFixed(1)}°</span>
           </div>
           <div className="slicer-stat-card">
-            <span className="slicer-stat-label">Thickness (t/c)</span>
-            <span className="slicer-stat-val">{sliceData.thicknessPct.toFixed(1)}%</span>
-          </div>
-          <div className="slicer-stat-card">
             <span className="slicer-stat-label">Max Thickness</span>
             <span className="slicer-stat-val">{sliceData.maxThickness_mm.toFixed(1)} mm</span>
           </div>
           <div className="slicer-stat-card">
-            <span className="slicer-stat-label">Spar Skin Clearance</span>
+            <span className="slicer-stat-label">Top Wall Clearance</span>
             <span
               className="slicer-stat-val"
               style={{
                 color: !sliceData.hasRod
                   ? 'var(--text-muted)'
-                  : sliceData.topClearance_mm < 0.6
+                  : sliceData.topClearance_mm < 0.8
                   ? '#ef4444'
-                  : sliceData.topClearance_mm < 1.2
+                  : sliceData.topClearance_mm < 1.4
                   ? '#f59e0b'
                   : '#34d399',
               }}
             >
-              {sliceData.hasRod ? `±${sliceData.topClearance_mm.toFixed(1)} mm` : 'No Spar'}
+              {sliceData.hasRod ? `${sliceData.topClearance_mm.toFixed(1)} mm` : 'No Spar'}
+            </span>
+          </div>
+          <div className="slicer-stat-card">
+            <span className="slicer-stat-label">Bottom Wall Clearance</span>
+            <span
+              className="slicer-stat-val"
+              style={{
+                color: !sliceData.hasRod
+                  ? 'var(--text-muted)'
+                  : sliceData.bottomClearance_mm < 0.8
+                  ? '#ef4444'
+                  : sliceData.bottomClearance_mm < 1.4
+                  ? '#f59e0b'
+                  : '#34d399',
+              }}
+            >
+              {sliceData.hasRod ? `${sliceData.bottomClearance_mm.toFixed(1)} mm` : 'No Spar'}
             </span>
           </div>
         </div>

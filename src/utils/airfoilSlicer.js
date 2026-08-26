@@ -80,7 +80,8 @@ export function sliceBladeSection(bladeParams, normalizedSpan, parsedCustomAirfo
   // Calculate Carbon Fiber Rod Center & Skin Clearance
   const rodDia_mm = bladeParams.carbonRodDia || 0;
   const rodDepthPct = bladeParams.carbonRodDepthPct ?? 100;
-  const rodPosPct = Math.max(15, Math.min(60, bladeParams.carbonRodPosPct ?? 30)); // 30% from LE
+  const rodPosPct = Math.max(10, Math.min(75, bladeParams.carbonRodPosPct ?? 30)); // % from LE
+  const rodYOffsetMm = bladeParams.carbonRodYOffsetMm || 0;
   const hasRodAtSlice = rodDia_mm > 0 && (span * 100) <= rodDepthPct;
   const rodRadius_m = (rodDia_mm / 1000) / 2;
 
@@ -111,11 +112,12 @@ export function sliceBladeSection(bladeParams, normalizedSpan, parsedCustomAirfo
 
   const rodCenter = {
     x: (0.25 - rodX_norm) * chord_m,
-    y: rodCamberY_m,
+    y: rodCamberY_m + (rodYOffsetMm / 1000),
   };
 
-  const topClearance_mm = Math.max(0, ((localThickness_m / 2) - rodRadius_m) * 1000);
-  const bottomClearance_mm = topClearance_mm;
+  const localHalfThickness_m = localThickness_m / 2;
+  const topClearance_mm = Math.max(0, (localHalfThickness_m - (rodYOffsetMm / 1000) - rodRadius_m) * 1000);
+  const bottomClearance_mm = Math.max(0, (localHalfThickness_m + (rodYOffsetMm / 1000) - rodRadius_m) * 1000);
 
   return {
     span,
@@ -135,6 +137,7 @@ export function sliceBladeSection(bladeParams, normalizedSpan, parsedCustomAirfo
     rodRadius_m,
     rodCenter,
     rodPosPct,
+    rodYOffsetMm,
     topClearance_mm,
     bottomClearance_mm,
   };

@@ -109,8 +109,9 @@ export function offsetAirfoilProfile(profile, chordMm, offsetMm, frontCutMm = 5.
  */
 export function getAirfoilSparCenter(seg, profileParams = {}) {
   const chordMm = (seg?.chord || 0.05) * 1000;
-  const rodPosPct = Math.max(0.15, Math.min(0.60, (profileParams.carbonRodPosPct || 30) / 100));
+  const rodPosPct = Math.max(0.10, Math.min(0.75, (profileParams.carbonRodPosPct ?? 30) / 100));
   const x = rodPosPct; // 0 to 1
+  const yOffsetMm = profileParams.carbonRodYOffsetMm || 0;
 
   let camberY = 0;
   if (seg?.customInterpolator) {
@@ -135,7 +136,7 @@ export function getAirfoilSparCenter(seg, profileParams = {}) {
 
   return {
     px: (0.25 - x) * chordMm,
-    pz: camberY * chordMm,
+    pz: camberY * chordMm + yOffsetMm,
   };
 }
 
