@@ -9,7 +9,7 @@ import { jsPDF } from 'jspdf';
  * @param {Object} bemResults - BEM solver results
  * @param {Array} powerCurve - Power curve data array
  */
-export function exportPDF(bladeParams, windSpeed, tsr, bemResults, powerCurve) {
+export function createPDFDocument(bladeParams, windSpeed, tsr, bemResults, powerCurve) {
   const doc = new jsPDF('p', 'mm', 'a4');
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -290,6 +290,10 @@ export function exportPDF(bladeParams, windSpeed, tsr, bemResults, powerCurve) {
     y += lines.length * 5 + 2;
   });
 
-  // ─── Save ───
+  return doc;
+}
+
+export function exportPDF(bladeParams, windSpeed, tsr, bemResults, powerCurve) {
+  const doc = createPDFDocument(bladeParams, windSpeed, tsr, bemResults, powerCurve);
   doc.save(`AeroBlade_Report_${Date.now()}.pdf`);
 }

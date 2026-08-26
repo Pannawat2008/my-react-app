@@ -9,6 +9,7 @@ import {
   exportASC,
   exportJSON,
   exportAirfoilDAT,
+  exportCompleteBladePackage,
 } from '../utils/exporters';
 import { exportPDF } from '../utils/pdfReport';
 
@@ -37,6 +38,7 @@ export default function ExportPanel() {
   } = useBlade();
 
   const [jsonModalOpen, setJsonModalOpen] = useState(false);
+  const [exportingPackage, setExportingPackage] = useState(false);
 
   const safeParams = bladeParams || {};
   const safeJointParams = {
@@ -427,9 +429,44 @@ export default function ExportPanel() {
 
       {/* ── 3. Engineering Reports & Data ── */}
       <div className="export-section">
-        <div className="export-title">📑 Engineering Reports &amp; Data</div>
+        <div className="export-title">📑 Engineering Reports &amp; Data Package</div>
         <button
           className="export-btn export-btn-accent"
+          style={{
+            background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(56, 189, 248, 0.25))',
+            border: '1px solid rgba(16, 185, 129, 0.5)',
+            fontWeight: 700,
+            padding: '12px 14px',
+            marginBottom: '10px',
+            boxShadow: '0 4px 15px rgba(16, 185, 129, 0.15)',
+          }}
+          disabled={exportingPackage}
+          onClick={async () => {
+            setExportingPackage(true);
+            try {
+              await exportCompleteBladePackage({
+                bladeParams: safeParams,
+                windSpeed: designWindSpeed,
+                tsr: designTsr,
+                bemResults: designBemResults,
+                powerCurve,
+                segments,
+                sliceEnabled,
+                maxZHeight,
+                jointParams: safeJointParams,
+              });
+            } catch (e) {
+              console.error('Export all failed:', e);
+            } finally {
+              setExportingPackage(false);
+            }
+          }}
+        >
+          <span className="export-icon">{exportingPackage ? '⏳' : '📦'}</span>
+          {exportingPackage ? 'Generating Complete Package...' : 'Export All Reports & CAD Package (.ZIP)'}
+        </button>
+        <button
+          className="export-btn"
           onClick={() =>
             exportPDF(bladeParams, designWindSpeed, designTsr, designBemResults, powerCurve)
           }

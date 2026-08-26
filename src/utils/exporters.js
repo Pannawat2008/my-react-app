@@ -3,6 +3,7 @@ import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
 import * as THREE from 'three';
 import JSZip from 'jszip';
 import { buildWatertightPartGeometry, computeSliceBoundaries, getAirfoilSparCenter } from './jointBuilder';
+import { createPDFDocument } from './pdfReport';
 
 /* ── CSV Export ── */
 export function exportCSV(bemResults) {
@@ -512,5 +513,294 @@ export async function exportGearZipSTL(stagesData) {
   a.download = `drivetrain_3d_print_pack_${Date.now()}.zip`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/* ── Export All: Complete Blade Engineering & Manufacturing Package ── */
+export async function exportCompleteBladePackage({
+  bladeParams,
+  windSpeed,
+  tsr,
+  bemResults,
+  powerCurve,
+  segments,
+  sliceEnabled = false,
+  maxZHeight = 200,
+  jointParams = null,
+}) {
+  const zip = new JSZip();
+  const safeParams = bladeParams || {};
+  const profileParams = {
+    leRadiusMod: safeParams.leRadiusMod || 1.0,
+    teThicknessMm: safeParams.teThicknessMm || 0.0,
+    teFlapDeg: safeParams.teFlapDeg || 0.0,
+    carbonRodPosPct: safeParams.carbonRodPosPct || 30,
+  };
+  const carbonRodDia = safeParams.carbonRodDia || 0;
+  const carbonRodDepthPct = safeParams.carbonRodDepthPct ?? 100;
+  const numSegments = segments?.length || 20;
+  const R_m = (safeParams.radiusMm || 500) / 1000;
+  const omega = (tsr * windSpeed) / Math.max(0.01, R_m);
+  const rpm = (omega * 60) / (2 * Math.PI);
+  const tipSpeed = omega * R_m;
+  const sweptArea = Math.PI * Math.pow(R_m, 2);
+
+  // 1. PDF Engineering Report
+  try {
+    const pdfDoc = createPDFDocument(bladeParams, windSpeed, tsr, bemResults, powerCurve);
+    const pdfArrayBuffer = pdfDoc.output('arraybuffer');
+    zip.file('01_Engineering_Report_AeroBlade.pdf', pdfArrayBuffer);
+  } catch (err) {
+    console.error('Failed to bundle PDF report into package:', err);
+  }
+
+  // 2. BEM Aerodynamics Spanwise Matrix CSV
+  let bemCsv = 'Station,Radius_m,Normalized_r_R,Chord_m,Twist_deg,Thickness_pct,Airfoil_Name,Alpha_deg,Cl,Cd,Lift_to_Drag_Ratio,Thrust_N_per_m,Torque_Nm_per_m,Flow_State\n';
+  (bemResults?.segments || segments || []).forEach((seg, i) => {
+    const r_m = seg.r || ((i + 0.5) / numSegments) * R_m;
+    const cl = seg.cl ?? 0;
+    const cd = seg.cd ?? 0.01;
+    const l_over_d = cd > 0 ? (cl / cd).toFixed(2) : '0';
+    const flowState = seg.alphaDeg > 14 ? 'Deep Stall' : seg.alphaDeg > 11.5 ? 'Stall Inception' : 'Attached Laminar';
+    bemCsv += [
+      i + 1,
+      r_m.toFixed(4),
+      (r_m / R_m).toFixed(4),
+      (seg.chord || 0.05).toFixed(4),
+      (seg.twistDeg || 0).toFixed(2),
+      ((seg.thicknessRatio || 0.12) * 100).toFixed(1),
+      seg.airfoil || 'SG6043',
+      (seg.alphaDeg || 0).toFixed(2),
+      cl.toFixed(4),
+      cd.toFixed(4),
+      l_over_d,
+      (seg.dT || 0).toFixed(2),
+      (seg.dQ || 0).toFixed(2),
+      flowState,
+    ].join(',') + '\n';
+  });
+  zip.file('02_BEM_Aerodynamics_Matrix.csv', bemCsv);
+
+  // 3. Power Curve & AEP Data CSV
+  let powerCsv = 'WindSpeed_ms,Rotor_RPM,Tip_Speed_ms,Mechanical_Power_kW,Electrical_Power_kW,Power_Coefficient_Cp,Thrust_Force_kN\n';
+  (powerCurve || []).forEach((pt) => {
+    const pMech = pt.power || 0;
+    const pElec = pMech * 0.90;
+    const ptOmega = (tsr * pt.windSpeed) / Math.max(0.01, R_m);
+    const ptRpm = (ptOmega * 60) / (2 * Math.PI);
+    const ptTipSpeed = ptOmega * R_m;
+    const thrust_kN = ((pt.thrust || 0) / 1000);
+    powerCsv += [
+      pt.windSpeed.toFixed(1),
+      ptRpm.toFixed(1),
+      ptTipSpeed.toFixed(1),
+      pMech.toFixed(3),
+      pElec.toFixed(3),
+      (pt.cp || 0).toFixed(4),
+      thrust_kN.toFixed(3),
+    ].join(',') + '\n';
+  });
+  zip.file('03_Power_Curve_and_AEP.csv', powerCsv);
+
+  // 4. CAD Splines for Fusion 360 & SolidWorks (Folder)
+  const fusionFolder = zip.folder('04_CAD_Splines_Fusion360');
+  const numSplinePoints = 50;
+  segments.forEach((seg, i) => {
+    let csvContent = '';
+    const profile = getAirfoilProfile(
+      seg.thicknessRatio,
+      numSplinePoints,
+      seg.chord,
+      profileParams.leRadiusMod,
+      profileParams.teThicknessMm,
+      profileParams.teFlapDeg,
+      seg.customInterpolator,
+      seg.airfoil
+    );
+    const twistRad = (seg.twistDeg * Math.PI) / 180;
+    const cosT = Math.cos(twistRad);
+    const sinT = Math.sin(twistRad);
+
+    const fusionProfile = [];
+    for (let j = numSplinePoints + 1; j < profile.length; j++) {
+      fusionProfile.push(profile[j]);
+    }
+    fusionProfile.push(profile[0]);
+    for (let j = 1; j <= numSplinePoints; j++) {
+      fusionProfile.push(profile[j]);
+    }
+
+    fusionProfile.forEach((pt) => {
+      let x = pt.x * seg.chord * 1000;
+      let z = pt.y * seg.chord * 1000;
+      let rotX = x * cosT - z * sinT;
+      let rotZ = x * sinT + z * cosT;
+      csvContent += `${rotX.toFixed(5)},${(seg.r * 1000).toFixed(5)},${rotZ.toFixed(5)}\n`;
+    });
+
+    fusionFolder.file(`section_${String(i + 1).padStart(2, '0')}_r${(seg.r * 1000).toFixed(0)}mm.csv`, csvContent);
+  });
+
+  // 5. Airfoil DAT Coordinates (Folder)
+  const datFolder = zip.folder('05_Airfoil_Profiles_DAT');
+  ['root', 'mid', 'tip'].forEach((region) => {
+    const chord = (safeParams[region]?.chordMm || 50) / 1000;
+    const thickRatio = (safeParams[region]?.thicknessPct || 12) / 100;
+    const airfoil = safeParams[region]?.airfoil || 'SG6043';
+    const profile = getAirfoilProfile(thickRatio, 100, chord, profileParams.leRadiusMod, profileParams.teThicknessMm, profileParams.teFlapDeg, null, airfoil);
+
+    let datContent = `${airfoil} (${region.toUpperCase()} Section - t/c=${(thickRatio * 100).toFixed(1)}%)\n`;
+    profile.forEach((pt) => {
+      const normX = 0.25 - pt.x;
+      const normY = pt.y;
+      datContent += `  ${normX.toFixed(6)}  ${normY.toFixed(6)}\n`;
+    });
+    datFolder.file(`${region}_section_${airfoil}.dat`, datContent);
+  });
+
+  // 6. 3D Models (OBJ & STL)
+  const modelsFolder = zip.folder('06_3D_Models');
+  const exporter = new STLExporter();
+  const sliceHeightMm = sliceEnabled ? maxZHeight : 0;
+  const sliceBoundaries = computeSliceBoundaries(segments, sliceHeightMm);
+
+  if (sliceBoundaries.length <= 2) {
+    const fullGeo = buildWatertightPartGeometry(segments, 0, segments.length - 1, false, false, null, profileParams, carbonRodDia, carbonRodDepthPct);
+    const scene = new THREE.Scene();
+    scene.add(new THREE.Mesh(fullGeo));
+    const stlBinary = exporter.parse(scene, { binary: true });
+    const buffer = stlBinary instanceof DataView ? stlBinary.buffer : stlBinary;
+    modelsFolder.file('blade_full_rotor.stl', buffer);
+    
+    // Wavefront OBJ
+    let objStr = `# AeroBlade Pro - Complete Blade Mesh\n`;
+    const pos = fullGeo.attributes.position.array;
+    const idx = fullGeo.index ? fullGeo.index.array : null;
+    for (let i = 0; i < pos.length; i += 3) {
+      objStr += `v ${pos[i].toFixed(4)} ${pos[i + 1].toFixed(4)} ${pos[i + 2].toFixed(4)}\n`;
+    }
+    objStr += `g blade\ns 1\n`;
+    if (idx) {
+      for (let i = 0; i < idx.length; i += 3) objStr += `f ${idx[i] + 1} ${idx[i + 1] + 1} ${idx[i + 2] + 1}\n`;
+    }
+    modelsFolder.file('blade_assembly.obj', objStr);
+  } else {
+    const numParts = sliceBoundaries.length - 1;
+    const isJointsEnabled = jointParams && jointParams.enabled;
+
+    for (let p = 0; p < numParts; p++) {
+      const startIndex = sliceBoundaries[p];
+      const endIndex = sliceBoundaries[p + 1];
+      if (startIndex >= endIndex) continue;
+
+      const hasTongue = isJointsEnabled && (p < numParts - 1);
+      const hasPocket = isJointsEnabled && (p > 0);
+      const partGeo = buildWatertightPartGeometry(segments, startIndex, endIndex, hasTongue, hasPocket, jointParams, profileParams, carbonRodDia, carbonRodDepthPct);
+
+      const scene = new THREE.Scene();
+      scene.add(new THREE.Mesh(partGeo));
+      const partStlBinary = exporter.parse(scene, { binary: true });
+      const buffer = partStlBinary instanceof DataView ? partStlBinary.buffer : partStlBinary;
+      modelsFolder.file(`blade_part_${p + 1}_of_${numParts}.stl`, buffer);
+    }
+  }
+
+  // 7. Point Cloud Coordinates (ASC)
+  let ascContent = `# AeroBlade Pro Point Cloud (X Y Z mm)\n`;
+  segments.forEach((seg) => {
+    const profile = getAirfoilProfile(seg.thicknessRatio, 30, seg.chord, profileParams.leRadiusMod, profileParams.teThicknessMm, profileParams.teFlapDeg, seg.customInterpolator, seg.airfoil);
+    const twistRad = (seg.twistDeg * Math.PI) / 180;
+    const cosT = Math.cos(twistRad);
+    const sinT = Math.sin(twistRad);
+    profile.forEach((pt) => {
+      let x = pt.x * seg.chord * 1000;
+      let z = pt.y * seg.chord * 1000;
+      let rotX = x * cosT - z * sinT;
+      let rotZ = x * sinT + z * cosT;
+      ascContent += `${rotX.toFixed(4)} ${(seg.r * 1000).toFixed(4)} ${rotZ.toFixed(4)}\n`;
+    });
+  });
+  zip.file('07_Point_Cloud_Cartesian.asc', ascContent);
+
+  // 8. Project Backup JSON
+  const projectJSON = {
+    version: '1.0',
+    name: 'AeroBlade 3D Pro Wind Turbine Design',
+    timestamp: new Date().toISOString(),
+    windSpeed,
+    tsr,
+    bladeParams: safeParams,
+    aerodynamicSummary: {
+      powerOutputKw: ((bemResults?.totalPower || 0) / 1000).toFixed(3),
+      powerCoefficientCp: (bemResults?.cp || 0).toFixed(4),
+      thrustForceKn: ((bemResults?.totalThrust || 0) / 1000).toFixed(3),
+      operatingRpm: rpm.toFixed(1),
+    },
+  };
+  zip.file('08_Blade_Design_Project.json', JSON.stringify(projectJSON, null, 2));
+
+  // 9. Manufacturing & Assembly Spec README
+  const readmeText = `========================================================================
+AEROBLADE 3D PRO - COMPREHENSIVE WIND TURBINE MANUFACTURING PACKAGE
+========================================================================
+Project Design Name: ${projectJSON.name}
+Generated Timestamp: ${projectJSON.timestamp}
+
+1. EXECUTIVE ROTOR SPECIFICATIONS:
+------------------------------------------------------------------------
+- Total Rotor Blade Radius (R): ${(safeParams.radiusMm || 500).toFixed(0)} mm (${R_m.toFixed(2)} m)
+- Rotor Diameter: ${(R_m * 2).toFixed(2)} m
+- Total Swept Area: ${sweptArea.toFixed(2)} m²
+- Blade Count (B): ${safeParams.numBlades || 3} blades
+- Design Wind Speed (V_rated): ${windSpeed.toFixed(1)} m/s
+- Design Tip Speed Ratio (TSR / λ): ${tsr.toFixed(1)}
+- Optimal Operating RPM: ${rpm.toFixed(1)} RPM
+- Maximum Blade Tip Velocity: ${tipSpeed.toFixed(1)} m/s (${(tipSpeed * 3.6).toFixed(1)} km/h)
+- Max Aerodynamic Power Coefficient (Cp): ${(bemResults?.cp || 0).toFixed(4)} (${(((bemResults?.cp || 0) / 0.5926) * 100).toFixed(1)}% Betz Limit)
+- Predicted Power Output: ${((bemResults?.totalPower || 0) / 1000).toFixed(2)} kW
+- Total Axial Rotor Thrust Load: ${((bemResults?.totalThrust || 0) / 1000).toFixed(2)} kN
+
+2. INTERNAL STRUCTURAL REINFORCEMENT:
+------------------------------------------------------------------------
+- Carbon Fiber Spar Rod Diameter: ${carbonRodDia > 0 ? `${carbonRodDia} mm` : 'None (Solid/Hollow Skin)'}
+- Spar Channel Spanwise Insertion Depth: ${carbonRodDepthPct}% of span
+- Spar Chordwise Centroid Position: ${profileParams.carbonRodPosPct}% from Leading Edge (centered along mean camber line)
+
+3. RECOMMENDED 3D PRINTING GUIDELINES:
+------------------------------------------------------------------------
+- Recommended Filaments: PETG, ASA, ABS, or Carbon-Fiber reinforced PLA (CF-PLA).
+- Print Orientation: Stand vertically on flat root/pocket joint face with brim.
+- Layer Height: 0.16 mm - 0.20 mm for smooth aerodynamic skin contour.
+- Wall Line Count: 3 to 4 perimeter walls (minimum 1.6 mm shell thickness).
+- Infill Density: 20% to 30% Gyroid or Cubic infill for isotropic stiffness.
+- Top / Bottom Thickness: Minimum 4 solid layers (0.8 - 1.0 mm).
+
+4. MULTI-PIECE INTERLOCKING JOINT ASSEMBLY:
+------------------------------------------------------------------------
+- Interlocking Tongue & Groove Joints: ${sliceEnabled ? 'ENABLED' : 'DISABLED'}
+- Tongue Extrusion Depth: ${jointParams?.extrusionDepth || 8} mm
+- Print Joint Clearance: ${jointParams?.clearance || 0.15} mm per side
+- Glue Channel Groove: ${jointParams?.glueChannel ? '0.5mm × 0.3mm resin distribution channel enabled' : 'Disabled'}
+- Assembly Adhesive: Medium-viscosity structural cyanoacrylate (CA) or slow-cure 2-part epoxy resin (e.g. West System 105/205).
+- Insertion Procedure: Apply thin film of epoxy along tongue and inside receiver pocket, insert through carbon fiber spar rod, and clamp under longitudinal pressure for 24 hours.
+
+========================================================================
+Package Contents:
+- 01_Engineering_Report_AeroBlade.pdf  (Full Executive Multi-Page PDF Report)
+- 02_BEM_Aerodynamics_Matrix.csv       (Spanwise Airflow & Aerodynamic Stations)
+- 03_Power_Curve_and_AEP.csv           (Wind Speed vs Power, RPM, and Cp)
+- 04_CAD_Splines_Fusion360/            (Autodesk Fusion 360 & SolidWorks Splines)
+- 05_Airfoil_Profiles_DAT/             (Selig DAT Cross-Section Coordinate Files)
+- 06_3D_Models/                        (Watertight 3D Printable Binary STLs & OBJ)
+- 07_Point_Cloud_Cartesian.asc         (3D Cartesian Coordinate Point Cloud)
+- 08_Blade_Design_Project.json         (Re-importable Design Project File)
+- README_MANUFACTURING_SPEC.txt        (This Document)
+========================================================================
+`;
+  zip.file('README_MANUFACTURING_SPEC.txt', readmeText);
+
+  // Generate and trigger download
+  const content = await zip.generateAsync({ type: 'blob' });
+  const filename = `AeroBlade_Complete_Package_${(safeParams.radiusMm || 500)}mm_${Date.now()}.zip`;
+  downloadBlob(content, filename, 'application/zip');
 }
 
