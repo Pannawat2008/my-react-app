@@ -2,7 +2,7 @@ import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { Html } from '@react-three/drei';
 import { getAirfoilProfile } from '../utils/airfoilProfile';
-import { buildWatertightPartGeometry, computeSliceBoundaries } from '../utils/jointBuilder';
+import { buildWatertightPartGeometry, computeSliceBoundaries, getAirfoilSparCenter } from '../utils/jointBuilder';
 
 /* ── Zebra Stripe Curvature Shader ── */
 const ZebraShaderMaterial = {
@@ -47,6 +47,7 @@ export default function Blade({
   showForceVectors = false,
   carbonRodDia = 0,
   carbonRodDepthPct = 100,
+  carbonRodPosPct = 30,
   leRadiusMod = 1.0,
   teThicknessMm = 0.0,
   teFlapDeg = 0.0,
@@ -77,7 +78,7 @@ export default function Blade({
 
   /* ── Build Watertight Geometries for Each Part ── */
   const partGeometries = useMemo(() => {
-    const profileParams = { leRadiusMod, teThicknessMm, teFlapDeg };
+    const profileParams = { leRadiusMod, teThicknessMm, teFlapDeg, carbonRodPosPct };
     const isJointsEnabled = jointParams && jointParams.enabled;
 
     if (!isSliced) {
@@ -138,7 +139,7 @@ export default function Blade({
       });
     }
     return parts;
-  }, [segments, boundaries, isSliced, numParts, jointParams, leRadiusMod, teThicknessMm, teFlapDeg, carbonRodDia, carbonRodDepthPct, spanOffset]);
+  }, [segments, boundaries, isSliced, numParts, jointParams, leRadiusMod, teThicknessMm, teFlapDeg, carbonRodDia, carbonRodDepthPct, carbonRodPosPct, spanOffset]);
 
   /* ── Exploded View Offsets (along Y spanwise axis in meters) ── */
   const explodedOffsets = useMemo(() => {
@@ -187,15 +188,34 @@ export default function Blade({
     return ribs;
   }, [segments, leRadiusMod, teThicknessMm, teFlapDeg, bladePitch, spanOffset]);
 
-  /* ── Spar Geometry ── */
+  /* ── 3D Carbon Fiber Spar Rod Tube Geometry following Camber & Twist ── */
   const sparGeometry = useMemo(() => {
     if (!showSpar && viewMode !== 'spar') return null;
-    const geo = new THREE.CylinderGeometry(0.08, 0.25, totalR, 24);
-    if (!centerBlade) {
-      geo.translate(0, totalR / 2, 0);
+    const rodRadius_m = Math.max(0.0015, (carbonRodDia || 4) / 2000);
+    const depthPct = carbonRodDepthPct ?? 100;
+    const endIdx = Math.max(1, Math.floor((depthPct / 100) * (segments.length - 1)));
+
+    const curvePoints = [];
+    for (let i = 0; i <= endIdx; i++) {
+      const seg = segments[i];
+      const sparCenter = getAirfoilSparCenter(seg, { carbonRodPosPct });
+      const twistRad = (-(seg.twistDeg + bladePitch) * Math.PI) / 180;
+      const cosT = Math.cos(twistRad);
+      const sinT = Math.sin(twistRad);
+
+      const px_m = sparCenter.px / 1000;
+      const pz_m = sparCenter.pz / 1000;
+      const rotX = px_m * cosT - pz_m * sinT;
+      const rotZ = px_m * sinT + pz_m * cosT;
+      const spanY = seg.r - spanOffset;
+
+      curvePoints.push(new THREE.Vector3(rotX, spanY, rotZ));
     }
-    return geo;
-  }, [totalR, showSpar, viewMode, centerBlade]);
+
+    if (curvePoints.length < 2) return null;
+    const path = new THREE.CatmullRomCurve3(curvePoints);
+    return new THREE.TubeGeometry(path, Math.max(20, endIdx * 4), rodRadius_m, 16, false);
+  }, [showSpar, viewMode, segments, carbonRodDia, carbonRodDepthPct, carbonRodPosPct, bladePitch, spanOffset]);
 
   const isAirflowMode = viewMode === 'airflow';
   const isWireframe = viewMode === 'wireframe';

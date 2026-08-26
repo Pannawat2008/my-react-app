@@ -167,6 +167,7 @@ export default function SimTurbine() {
           showDimensions={false}
           carbonRodDia={bladeParams.carbonRodDia}
           carbonRodDepthPct={bladeParams.carbonRodDepthPct}
+          carbonRodPosPct={bladeParams.carbonRodPosPct}
           leRadiusMod={bladeParams.leRadiusMod}
           teThicknessMm={bladeParams.teThicknessMm}
           teFlapDeg={bladeParams.teFlapDeg}
