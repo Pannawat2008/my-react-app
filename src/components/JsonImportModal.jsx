@@ -58,7 +58,15 @@ export default function JsonImportModal({ isOpen, onClose }) {
         return;
       }
 
-      setBladeParams(newParams);
+      setBladeParams(prev => ({
+        ...prev,
+        ...newParams,
+        root: { ...prev.root, ...(newParams.root || {}) },
+        mid: { ...prev.mid, ...(newParams.mid || {}) },
+        tip: { ...prev.tip, ...(newParams.tip || {}) },
+        carbonRodPosPct: newParams.carbonRodPosPct ?? prev.carbonRodPosPct ?? 30,
+        carbonRodYOffsetMm: newParams.carbonRodYOffsetMm ?? prev.carbonRodYOffsetMm ?? 0,
+      }));
       if (newWind && !isNaN(newWind)) setDesignWindSpeed(newWind);
       if (newTsr && !isNaN(newTsr)) setDesignTsr(newTsr);
 

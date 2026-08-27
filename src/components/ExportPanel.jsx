@@ -96,10 +96,19 @@ export default function ExportPanel() {
       reader.onload = (evt) => {
         try {
           const data = JSON.parse(evt.target.result);
-          if (data.bladeParams) {
-            setBladeParams(data.bladeParams);
-          } else if (data.radiusMm) {
-            setBladeParams(data);
+          const newParams = data.bladeParams || (data.radiusMm ? data : null);
+          if (newParams) {
+            setBladeParams((prev) => ({
+              ...prev,
+              ...newParams,
+              root: { ...prev.root, ...(newParams.root || {}) },
+              mid: { ...prev.mid, ...(newParams.mid || {}) },
+              tip: { ...prev.tip, ...(newParams.tip || {}) },
+              carbonRodPosPct: newParams.carbonRodPosPct ?? prev.carbonRodPosPct ?? 30,
+              carbonRodYOffsetMm: newParams.carbonRodYOffsetMm ?? prev.carbonRodYOffsetMm ?? 0,
+            }));
+            if (data.windSpeed) setDesignWindSpeed(parseFloat(data.windSpeed));
+            if (data.tsr) setDesignTsr(parseFloat(data.tsr));
           }
         } catch {
           alert('Invalid JSON file');
