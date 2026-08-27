@@ -49,7 +49,7 @@ export async function exportFusionCSV(segments, leRadiusMod = 1.0, teThicknessMm
       seg.customInterpolator,
       seg.airfoil
     );
-    const twistRad = (seg.twistDeg * Math.PI) / 180;
+    const twistRad = (-(seg.twistDeg || 0) * Math.PI) / 180;
     const cosT = Math.cos(twistRad);
     const sinT = Math.sin(twistRad);
 
@@ -333,7 +333,7 @@ export async function exportASC(segments, carbonRodDia = 0, carbonRodDepthPct = 
       seg.customInterpolator,
       seg.airfoil
     );
-    const twistRad = (seg.twistDeg * Math.PI) / 180;
+    const twistRad = (-(seg.twistDeg || 0) * Math.PI) / 180;
     const cosT = Math.cos(twistRad);
     const sinT = Math.sin(twistRad);
 

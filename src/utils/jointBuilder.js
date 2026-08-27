@@ -158,7 +158,7 @@ export function buildTongueTriangles(
   const tongueProfile = offsetAirfoilProfile(profile, chordMm, wallOffset, frontCut, backCut);
   const totalPts = tongueProfile.length;
 
-  const twistRad = (seg.twistDeg * Math.PI) / 180;
+  const twistRad = (-(seg.twistDeg + (profileParams.bladePitch || 0)) * Math.PI) / 180;
   const cosT = Math.cos(twistRad);
   const sinT = Math.sin(twistRad);
 
@@ -178,11 +178,11 @@ export function buildTongueTriangles(
   // Exterior side walls (outward normals)
   for (let i = 0; i < totalPts; i++) {
     const ni = (i + 1) % totalPts;
-    triangles.push(baseRing[i], baseRing[ni], tipRing[i]);
-    triangles.push(baseRing[ni], tipRing[ni], tipRing[i]);
+    triangles.push(baseRing[i], tipRing[i], baseRing[ni]);
+    triangles.push(tipRing[i], tipRing[ni], baseRing[ni]);
   }
 
-  // Tip cap (normal points +Y)
+  // Tongue tip end cap (outward normal points +Y)
   if (carbonRodRadiusMm > 0) {
     const sparCenter = getAirfoilSparCenter(seg, profileParams);
     const holePoints = 30;
@@ -198,8 +198,8 @@ export function buildTongueTriangles(
       const ni = (i + 1) % totalPts;
       const hi = Math.floor((i / totalPts) * holePoints) % holePoints;
       const hni = (hi + 1) % holePoints;
-      triangles.push(tipRing[i], holeTipRing[hi], tipRing[ni]);
-      triangles.push(tipRing[ni], holeTipRing[hi], holeTipRing[hni]);
+      triangles.push(tipRing[i], tipRing[ni], holeTipRing[hi]);
+      triangles.push(tipRing[ni], holeTipRing[hni], holeTipRing[hi]);
     }
   } else {
     for (let i = 1; i < totalPts - 1; i++) {
@@ -431,7 +431,7 @@ export function buildWatertightPartGeometry(
   for (let s = startIndex; s <= endIndex; s++) {
     const seg = segments[s];
     const yMm = seg.r * 1000;
-    const twistRad = (seg.twistDeg * Math.PI) / 180;
+    const twistRad = (-(seg.twistDeg + (profileParams.bladePitch || 0)) * Math.PI) / 180;
     const cosT = Math.cos(twistRad);
     const sinT = Math.sin(twistRad);
 
@@ -508,7 +508,7 @@ export function buildWatertightPartGeometry(
   const rootInner = innerOffsets[0];
   const rootSeg = segments[startIndex];
   const rootY = rootSeg.r * 1000;
-  const rootTwistRad = (rootSeg.twistDeg * Math.PI) / 180;
+  const rootTwistRad = (-(rootSeg.twistDeg + (profileParams.bladePitch || 0)) * Math.PI) / 180;
   const rootCosT = Math.cos(rootTwistRad);
   const rootSinT = Math.sin(rootTwistRad);
 
@@ -600,7 +600,7 @@ export function buildWatertightPartGeometry(
   const tipInner = innerOffsets[numLayers - 1];
   const tipSeg = segments[endIndex];
   const tipY = tipSeg.r * 1000;
-  const tipTwistRad = (tipSeg.twistDeg * Math.PI) / 180;
+  const tipTwistRad = (-(tipSeg.twistDeg + (profileParams.bladePitch || 0)) * Math.PI) / 180;
   const tipCosT = Math.cos(tipTwistRad);
   const tipSinT = Math.sin(tipTwistRad);
 

@@ -79,7 +79,7 @@ export default function Blade({
 
   /* ── Build Watertight Geometries for Each Part ── */
   const partGeometries = useMemo(() => {
-    const profileParams = { leRadiusMod, teThicknessMm, teFlapDeg, carbonRodPosPct, carbonRodYOffsetMm };
+    const profileParams = { leRadiusMod, teThicknessMm, teFlapDeg, carbonRodPosPct, carbonRodYOffsetMm, bladePitch };
     const isJointsEnabled = jointParams && jointParams.enabled;
 
     if (!isSliced) {
@@ -140,7 +140,7 @@ export default function Blade({
       });
     }
     return parts;
-  }, [segments, boundaries, isSliced, numParts, jointParams, leRadiusMod, teThicknessMm, teFlapDeg, carbonRodDia, carbonRodDepthPct, carbonRodPosPct, carbonRodYOffsetMm, spanOffset]);
+  }, [segments, boundaries, isSliced, numParts, jointParams, leRadiusMod, teThicknessMm, teFlapDeg, carbonRodDia, carbonRodDepthPct, carbonRodPosPct, carbonRodYOffsetMm, bladePitch, spanOffset]);
 
   /* ── Exploded View Offsets (along Y spanwise axis in meters) ── */
   const explodedOffsets = useMemo(() => {
