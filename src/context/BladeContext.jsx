@@ -193,6 +193,9 @@ export function BladeProvider({ children }) {
 
   // Slicing & Interlocking Joint State
   const [sliceEnabled, setSliceEnabled] = useState(false);
+  const [sliceMode, setSliceMode] = useState('manual'); // 'auto' | 'manual'
+  const [slidePartsCount, setSlidePartsCount] = useState(2); // 2 | 3 | 4
+  const [slideCuts, setSlideCuts] = useState([50]); // array of percentage cut stations [50] or [33, 66]
   const [maxZHeight, setMaxZHeight] = useState(220);
   const [jointParams, setJointParams] = useState({
     enabled: true,
@@ -361,6 +364,12 @@ export function BladeProvider({ children }) {
     setActiveSliceSpan,
     sliceEnabled,
     setSliceEnabled,
+    sliceMode,
+    setSliceMode,
+    slidePartsCount,
+    setSlidePartsCount,
+    slideCuts,
+    setSlideCuts,
     maxZHeight,
     setMaxZHeight,
     jointParams,

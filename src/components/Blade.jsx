@@ -123,6 +123,8 @@ export default function Blade({
   bladePitch = 0,
   bemSegments = null,
   sliceEnabled = false,
+  sliceMode = 'manual',
+  sliceCuts = [50],
   maxZHeight = 220,
   jointParams = null,
 }) {
@@ -136,11 +138,15 @@ export default function Blade({
 
   /* ── Compute Slice Boundaries ── */
   const boundaries = useMemo(() => {
-    if (!sliceEnabled || maxZHeight <= 0) return [0, segments.length - 1];
-    return computeSliceBoundaries(segments, maxZHeight);
-  }, [sliceEnabled, maxZHeight, segments]);
+    if (!sliceEnabled) return [0, segments.length - 1];
+    return computeSliceBoundaries(segments, {
+      mode: sliceMode || 'manual',
+      maxZHeight: maxZHeight || 220,
+      customCuts: sliceCuts || [50],
+    });
+  }, [sliceEnabled, sliceMode, maxZHeight, sliceCuts, segments]);
 
-  const isSliced = sliceEnabled && boundaries.length > 2;
+  const isSliced = sliceEnabled && boundaries.length >= 3;
   const numParts = boundaries.length - 1;
 
   /* ── Build Watertight Geometries for Each Part ── */

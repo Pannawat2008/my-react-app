@@ -345,6 +345,8 @@ export const ViewportTab = () => {
     designRpm,
     history,
     sliceEnabled,
+    sliceMode,
+    sliceCuts,
     maxZHeight,
     jointParams,
   } = useBlade();
@@ -572,6 +574,8 @@ export const ViewportTab = () => {
             teFlapDeg={bladeParams.teFlapDeg}
             centerBlade={true}
             sliceEnabled={sliceEnabled}
+            sliceMode={sliceMode}
+            sliceCuts={sliceCuts}
             maxZHeight={maxZHeight}
             jointParams={jointParams}
           />

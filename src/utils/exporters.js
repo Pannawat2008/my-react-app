@@ -616,7 +616,7 @@ export async function exportCompleteBladePackage({
       seg.customInterpolator,
       seg.airfoil
     );
-    const twistRad = (seg.twistDeg * Math.PI) / 180;
+    const twistRad = (-(seg.twistDeg || 0) * Math.PI) / 180;
     const cosT = Math.cos(twistRad);
     const sinT = Math.sin(twistRad);
 
@@ -648,7 +648,7 @@ export async function exportCompleteBladePackage({
     const airfoil = safeParams[region]?.airfoil || 'SG6043';
     const profile = getAirfoilProfile(thickRatio, 100, chord, profileParams.leRadiusMod, profileParams.teThicknessMm, profileParams.teFlapDeg, null, airfoil);
 
-    let datContent = `${airfoil} (${region.toUpperCase()} Section - t/c=${(thickRatio * 100).toFixed(1)}%)\n`;
+    let datContent = `${airfoil} Airfoil Profile - ${region.toUpperCase()} Section\n`;
     profile.forEach((pt) => {
       const normX = 0.25 - pt.x;
       const normY = pt.y;
@@ -660,8 +660,8 @@ export async function exportCompleteBladePackage({
   // 6. 3D Models (OBJ & STL)
   const modelsFolder = zip.folder('06_3D_Models');
   const exporter = new STLExporter();
-  const sliceHeightMm = sliceEnabled ? maxZHeight : 0;
-  const sliceBoundaries = computeSliceBoundaries(segments, sliceHeightMm);
+  const sliceConfig = sliceEnabled ? (typeof maxZHeight === 'object' ? maxZHeight : { mode: 'auto', maxZHeight }) : 0;
+  const sliceBoundaries = computeSliceBoundaries(segments, sliceConfig);
 
   if (sliceBoundaries.length <= 2) {
     const fullGeo = buildWatertightPartGeometry(segments, 0, segments.length - 1, false, false, null, profileParams, carbonRodDia, carbonRodDepthPct);

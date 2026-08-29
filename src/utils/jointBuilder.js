@@ -308,8 +308,45 @@ export function trianglesToBufferGeometry(triangles) {
    5. Compute slice boundaries
    ──────────────────────────────────────────────── */
 
-export function computeSliceBoundaries(segments, sliceHeightMm) {
+export function computeSliceBoundaries(segments, sliceConfig) {
+  if (!segments || segments.length === 0) return [0];
   const R_mm = segments[segments.length - 1].r * 1000;
+  const numSegs = segments.length;
+
+  // 1. Manual Slide Cut Mode with custom cut positions
+  if (sliceConfig && typeof sliceConfig === 'object' && sliceConfig.mode === 'manual' && Array.isArray(sliceConfig.customCuts)) {
+    const cutIndices = new Set([0]);
+    sliceConfig.customCuts.forEach(cutVal => {
+      // cutVal can be percentage (0-100), ratio (0-1), or mm (e.g. 200)
+      let cutMm;
+      if (cutVal > 1 && cutVal <= 100) {
+        cutMm = (cutVal / 100) * R_mm;
+      } else if (cutVal <= 1.0) {
+        cutMm = cutVal * R_mm;
+      } else {
+        cutMm = cutVal;
+      }
+
+      if (cutMm > 5 && cutMm < R_mm - 5) {
+        let bestIdx = 1;
+        let bestDist = Infinity;
+        for (let i = 1; i < numSegs - 1; i++) {
+          const d = Math.abs(segments[i].r * 1000 - cutMm);
+          if (d < bestDist) {
+            bestDist = d;
+            bestIdx = i;
+          }
+        }
+        cutIndices.add(bestIdx);
+      }
+    });
+    cutIndices.add(numSegs - 1);
+    const sorted = Array.from(cutIndices).sort((a, b) => a - b);
+    return sorted;
+  }
+
+  // 2. Auto Bed Height Mode
+  const sliceHeightMm = typeof sliceConfig === 'number' ? sliceConfig : (sliceConfig?.maxZHeight || 220);
   const boundaries = [0];
 
   if (sliceHeightMm > 0 && sliceHeightMm < R_mm) {
@@ -321,7 +358,9 @@ export function computeSliceBoundaries(segments, sliceHeightMm) {
       }
     }
   }
-  boundaries.push(segments.length - 1);
+  if (boundaries[boundaries.length - 1] !== numSegs - 1) {
+    boundaries.push(numSegs - 1);
+  }
   return boundaries;
 }
 
