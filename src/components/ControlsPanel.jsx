@@ -181,6 +181,18 @@ export default function ControlsPanel() {
     setViewMode,
     setSliceModalOpen,
     setActiveSliceSpan,
+    sliceEnabled,
+    setSliceEnabled,
+    sliceMode,
+    setSliceMode,
+    slidePartsCount,
+    setSlidePartsCount,
+    slideCuts,
+    setSlideCuts,
+    maxZHeight,
+    setMaxZHeight,
+    jointParams,
+    setJointParams,
   } = useBlade();
 
   // Accordion State
@@ -190,6 +202,7 @@ export default function ControlsPanel() {
     planform: false,
     aero: false,
     structural: false,
+    slicing: false,
   });
 
   const [toastMessage, setToastMessage] = useState(null);
@@ -216,6 +229,7 @@ export default function ControlsPanel() {
       planform: true,
       aero: true,
       structural: true,
+      slicing: true,
     });
   };
 
@@ -226,6 +240,7 @@ export default function ControlsPanel() {
       planform: false,
       aero: false,
       structural: false,
+      slicing: false,
     });
   };
 
@@ -1200,6 +1215,245 @@ export default function ControlsPanel() {
                     <span>🔬</span> Inspect Rod Position &amp; Clearance in 2D Slicer
                   </button>
                 </>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── 6. Accordion: 3D Print Multi-Piece Slicing & Slide Cut ── */}
+      <div className={`cp-accordion ${openAccordions.slicing ? 'expanded' : ''}`}>
+        <div className="cp-accordion-header" onClick={() => toggleAccordion('slicing')}>
+          <div className="cp-accordion-title">
+            <span className="cp-accordion-icon">✂️</span>
+            <span>3D Print Slicing &amp; Slide Cut</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span className="cp-accordion-badge" style={{ color: sliceEnabled ? '#34d399' : 'var(--text-subtle)' }}>
+              {sliceEnabled ? `${slidePartsCount || 2} Parts` : 'Single Body'}
+            </span>
+            <span className="cp-accordion-chevron">▼</span>
+          </div>
+        </div>
+
+        {openAccordions.slicing && (
+          <div className="cp-accordion-content animate-slideDown">
+            <div className="cp-card">
+              {/* Enable Switch */}
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 10 }}>
+                <input
+                  type="checkbox"
+                  className="cp-checkbox"
+                  checked={sliceEnabled || false}
+                  onChange={(e) => {
+                    const enabled = e.target.checked;
+                    setSliceEnabled(enabled);
+                    if (enabled && (!jointParams || (jointParams.explodedDistance || 0) === 0)) {
+                      setJointParams((prev) => ({ ...(prev || {}), explodedDistance: 15 }));
+                    }
+                  }}
+                />
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                  Split Blade for 3D Printing Beds
+                </span>
+              </label>
+
+              {sliceEnabled && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {/* Slicing Mode Toggle */}
+                  <div style={{ display: 'flex', gap: 4, background: 'rgba(0,0,0,0.2)', padding: 3, borderRadius: 6 }}>
+                    <button
+                      type="button"
+                      style={{
+                        flex: 1,
+                        fontSize: 11,
+                        padding: '5px 8px',
+                        borderRadius: 4,
+                        border: 'none',
+                        background: (sliceMode || 'manual') === 'manual' ? 'var(--accent-bg)' : 'transparent',
+                        color: (sliceMode || 'manual') === 'manual' ? 'var(--accent)' : 'var(--text-muted)',
+                        fontWeight: (sliceMode || 'manual') === 'manual' ? 700 : 500,
+                        cursor: 'pointer',
+                      }}
+                      onClick={() => setSliceMode('manual')}
+                    >
+                      🖐️ Manual Slide Cut
+                    </button>
+                    <button
+                      type="button"
+                      style={{
+                        flex: 1,
+                        fontSize: 11,
+                        padding: '5px 8px',
+                        borderRadius: 4,
+                        border: 'none',
+                        background: sliceMode === 'auto' ? 'var(--accent-bg)' : 'transparent',
+                        color: sliceMode === 'auto' ? 'var(--accent)' : 'var(--text-muted)',
+                        fontWeight: sliceMode === 'auto' ? 700 : 500,
+                        cursor: 'pointer',
+                      }}
+                      onClick={() => setSliceMode('auto')}
+                    >
+                      🤖 Auto Bed Split
+                    </button>
+                  </div>
+
+                  {(sliceMode || 'manual') === 'manual' ? (
+                    <>
+                      {/* Number of Pieces */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span className="cp-field-label">Target Blade Pieces:</span>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          {[2, 3, 4].map((num) => (
+                            <button
+                              key={num}
+                              type="button"
+                              style={{
+                                fontSize: 10.5,
+                                padding: '3px 8px',
+                                borderRadius: 4,
+                                background: (slidePartsCount || 2) === num ? 'rgba(56, 189, 248, 0.2)' : 'rgba(255,255,255,0.05)',
+                                border: `1px solid ${(slidePartsCount || 2) === num ? '#38bdf8' : 'var(--border)'}`,
+                                color: (slidePartsCount || 2) === num ? '#38bdf8' : 'var(--text-muted)',
+                                cursor: 'pointer',
+                                fontWeight: (slidePartsCount || 2) === num ? 700 : 500,
+                              }}
+                              onClick={() => {
+                                setSlidePartsCount(num);
+                                if (num === 2) setSlideCuts([50]);
+                                else if (num === 3) setSlideCuts([35, 70]);
+                                else setSlideCuts([25, 50, 75]);
+                              }}
+                            >
+                              {num} Parts
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Cut Location Sliders */}
+                      {(slideCuts || [50]).map((cutPct, idx) => {
+                        const cutMm = (cutPct / 100) * (bladeParams.radiusMm || 400);
+                        return (
+                          <div key={idx} style={{ background: 'rgba(0,0,0,0.15)', padding: 8, borderRadius: 6, border: '1px solid var(--border-subtle)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                              <span className="cp-field-label">✂️ Slide Cut {idx + 1} Station:</span>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: '#38bdf8' }}>
+                                {cutPct.toFixed(1)}% ({cutMm.toFixed(0)} mm)
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              className="cp-slider"
+                              min={idx === 0 ? 15 : (slideCuts[idx - 1] || 15) + 5}
+                              max={idx === slideCuts.length - 1 ? 85 : (slideCuts[idx + 1] || 85) - 5}
+                              step="0.5"
+                              value={cutPct}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value);
+                                const updated = [...slideCuts];
+                                updated[idx] = val;
+                                setSlideCuts(updated);
+                              }}
+                            />
+                          </div>
+                        );
+                      })}
+
+                      {/* Quick Presets */}
+                      {(slidePartsCount || 2) === 2 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                          {[
+                            { label: '🎯 50/50 Midpoint', pct: 50 },
+                            { label: '🚀 40/60 Split', pct: 40 },
+                            { label: '⚖️ 33/67 Root Cut', pct: 33.3 },
+                            { label: '🛡️ 25/75 Hub Split', pct: 25 },
+                          ].map((preset) => (
+                            <button
+                              key={preset.pct}
+                              type="button"
+                              style={{
+                                fontSize: 10,
+                                padding: '3px 6px',
+                                borderRadius: 4,
+                                background: 'rgba(255,255,255,0.05)',
+                                border: '1px solid var(--border)',
+                                color: 'var(--text-muted)',
+                                cursor: 'pointer',
+                              }}
+                              onClick={() => setSlideCuts([preset.pct])}
+                            >
+                              {preset.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Exploded Distance Slider */}
+                      <div className="cp-field-row" style={{ marginTop: 6 }}>
+                        <span className="cp-field-label">💥 3D Exploded View Separation:</span>
+                        <div className="cp-field-value">
+                          <span className="cp-value-highlight">{(jointParams?.explodedDistance ?? 15).toFixed(0)} mm</span>
+                        </div>
+                      </div>
+                      <input
+                        type="range"
+                        className="cp-slider"
+                        min="0"
+                        max="60"
+                        step="1"
+                        value={jointParams?.explodedDistance ?? 15}
+                        onChange={(e) =>
+                          setJointParams((prev) => ({ ...(prev || {}), explodedDistance: parseFloat(e.target.value) }))
+                        }
+                      />
+                    </>
+                  ) : (
+                    <>
+                      {/* Bed Presets */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <span className="cp-field-label">Quick 3D Printer Bed Presets:</span>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                          {[
+                            { label: '🖨️ Bambu/Prusa (250mm)', height: 250 },
+                            { label: '🖨️ Ender 3 (220mm)', height: 220 },
+                            { label: '🖨️ CR-10 (300mm)', height: 300 },
+                            { label: '🖨️ Mini (180mm)', height: 180 },
+                          ].map((preset) => (
+                            <button
+                              key={preset.height}
+                              type="button"
+                              style={{
+                                fontSize: 10,
+                                padding: '3px 6px',
+                                borderRadius: 4,
+                                background: maxZHeight === preset.height ? 'var(--accent-bg)' : 'rgba(255,255,255,0.05)',
+                                border: `1px solid ${maxZHeight === preset.height ? 'var(--accent-border)' : 'var(--border)'}`,
+                                color: maxZHeight === preset.height ? 'var(--accent)' : 'var(--text-secondary)',
+                                cursor: 'pointer',
+                              }}
+                              onClick={() => setMaxZHeight(preset.height)}
+                            >
+                              {preset.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Custom Height */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <span className="cp-field-label">Max Bed Height (Z mm):</span>
+                        <input
+                          type="number"
+                          value={maxZHeight || 220}
+                          onChange={(e) => setMaxZHeight(parseFloat(e.target.value) || 220)}
+                          className="cp-number-input"
+                          style={{ width: '100%', textAlign: 'left' }}
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
               )}
             </div>
           </div>

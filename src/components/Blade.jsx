@@ -429,29 +429,40 @@ export default function Blade({
         );
       })}
 
-      {/* ── Cut plane indicator badges & lines ── */}
+      {/* ── Cut plane indicator badges & rings ── */}
       {isSliced &&
         boundaries.slice(1, -1).map((segIdx, idx) => {
           const cutY = segments[segIdx].r - spanOffset;
           const maxChord = segments[segIdx].chord || 0.1;
           const explodeY = explodedOffsets ? (explodedOffsets[idx] + explodedOffsets[idx + 1]) / 2 : 0;
+          const pct = ((segments[segIdx].r / totalR) * 100).toFixed(1);
 
           return (
             <group key={`cutplane-${idx}`}>
-              <line position={[0, explodeY, 0]}>
-                <bufferGeometry
-                  attach="geometry"
-                  {...new THREE.BufferGeometry().setFromPoints([
-                    new THREE.Vector3(-maxChord * 0.9, cutY, 0),
-                    new THREE.Vector3(maxChord * 0.9, cutY, 0),
-                  ])}
-                />
-                <lineDashedMaterial color="#ef4444" dashSize={0.02} gapSize={0.01} linewidth={2} />
-              </line>
+              {/* Glowing Cut Disc */}
+              <mesh position={[0, cutY + explodeY, 0]} rotation={[Math.PI / 2, 0, 0]}>
+                <ringGeometry args={[0.002, maxChord * 0.8, 32]} />
+                <meshBasicMaterial color="#ef4444" transparent={true} opacity={0.35} side={THREE.DoubleSide} />
+              </mesh>
 
-              <Html position={[0, cutY + explodeY, 0.08]} center>
-                <div className="joint-cut-badge">
-                  <span>✂️ Cut {idx + 1} ({((segments[segIdx].r) * 1000).toFixed(0)}mm)</span>
+              <Html position={[0, cutY + explodeY, maxChord * 0.5 + 0.05]} center>
+                <div
+                  className="joint-cut-badge glass"
+                  style={{
+                    background: 'rgba(239, 68, 68, 0.85)',
+                    color: '#ffffff',
+                    padding: '3px 8px',
+                    borderRadius: 4,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    boxShadow: '0 0 12px rgba(239, 68, 68, 0.6)',
+                    border: '1px solid #fca5a5',
+                    whiteSpace: 'nowrap',
+                    cursor: 'default',
+                    userSelect: 'none',
+                  }}
+                >
+                  <span>✂️ Cut {idx + 1}: {((segments[segIdx].r) * 1000).toFixed(0)}mm ({pct}%)</span>
                 </div>
               </Html>
             </group>
