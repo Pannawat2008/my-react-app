@@ -337,6 +337,10 @@ export default function ControlsPanel() {
         <div className="cp-viewmode-toggles">
           {[
             { id: 'solid', label: 'Solid' },
+            { id: 'faceted', label: '🔷 Facets' },
+            { id: 'normals', label: '🌈 Normals' },
+            { id: 'clay', label: '🏺 Clay' },
+            { id: 'zebra', label: '🦓 Zebra' },
             { id: 'airflow', label: '💨 Flow' },
             { id: 'wireframe', label: 'Wire' },
             { id: 'ribs', label: 'Ribs' },

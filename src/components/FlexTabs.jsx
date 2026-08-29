@@ -408,13 +408,6 @@ export const ViewportTab = () => {
             📏 Dimensions
           </button>
           <button
-            className={`cad-tool-btn ${viewMode === 'airflow' ? 'active' : ''}`}
-            onClick={() => setViewMode(viewMode === 'airflow' ? 'solid' : 'airflow')}
-            title="Aerodynamic Flow & Stall Separation Heatmap"
-          >
-            💨 Flow
-          </button>
-          <button
             className={`cad-tool-btn ${showForceVectors ? 'active' : ''}`}
             onClick={() => setShowForceVectors(!showForceVectors)}
             title="Toggle Lift/Drag Force Vector Arrows"
@@ -422,11 +415,39 @@ export const ViewportTab = () => {
             🏹 Lift/Drag
           </button>
           <button
+            className={`cad-tool-btn ${viewMode === 'faceted' ? 'active' : ''}`}
+            onClick={() => setViewMode(viewMode === 'faceted' ? 'solid' : 'faceted')}
+            title="Faceted Polygons + Wireframe Overlay"
+          >
+            🔷 Facets
+          </button>
+          <button
+            className={`cad-tool-btn ${viewMode === 'normals' ? 'active' : ''}`}
+            onClick={() => setViewMode(viewMode === 'normals' ? 'solid' : 'normals')}
+            title="RGB Surface Normal Vector Diagnostic"
+          >
+            🌈 Normals
+          </button>
+          <button
+            className={`cad-tool-btn ${viewMode === 'clay' ? 'active' : ''}`}
+            onClick={() => setViewMode(viewMode === 'clay' ? 'solid' : 'clay')}
+            title="MatCap Studio Clay CAD Surface"
+          >
+            🏺 Clay
+          </button>
+          <button
             className={`cad-tool-btn ${viewMode === 'zebra' ? 'active' : ''}`}
             onClick={() => setViewMode(viewMode === 'zebra' ? 'solid' : 'zebra')}
             title="Zebra Curvature Surface Analysis"
           >
             🦓 Zebra
+          </button>
+          <button
+            className={`cad-tool-btn ${viewMode === 'airflow' ? 'active' : ''}`}
+            onClick={() => setViewMode(viewMode === 'airflow' ? 'solid' : 'airflow')}
+            title="Aerodynamic Flow & Stall Separation Heatmap"
+          >
+            💨 Flow
           </button>
         </div>
       </div>

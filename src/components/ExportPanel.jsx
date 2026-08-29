@@ -192,15 +192,50 @@ export default function ExportPanel() {
           </label>
 
           {sliceEnabled && (
-            <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span className="cp-field-label">Max Bed Height (Z mm):</span>
-              <input
-                type="number"
-                value={maxZHeight || 200}
-                onChange={(e) => setMaxZHeight(parseFloat(e.target.value) || 200)}
-                className="cp-number-input"
-                style={{ width: '100%', textAlign: 'left' }}
-              />
+            <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {/* Quick Bed Size Presets */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span className="cp-field-label">Quick 3D Printer Bed Presets:</span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {[
+                    { label: '🖨️ Bambu/Prusa (250mm)', height: 250 },
+                    { label: '🖨️ Ender 3 (220mm)', height: 220 },
+                    { label: '🖨️ CR-10/Large (300mm)', height: 300 },
+                    { label: '🖨️ Mini/Voron (180mm)', height: 180 },
+                    { label: '🖨️ Super Max (400mm)', height: 400 },
+                  ].map((preset) => (
+                    <button
+                      key={preset.height}
+                      type="button"
+                      style={{
+                        fontSize: 10.5,
+                        padding: '3px 7px',
+                        borderRadius: 4,
+                        background: maxZHeight === preset.height ? 'var(--accent-bg)' : 'rgba(255,255,255,0.05)',
+                        border: `1px solid ${maxZHeight === preset.height ? 'var(--accent-border)' : 'var(--border)'}`,
+                        color: maxZHeight === preset.height ? 'var(--accent)' : 'var(--text-secondary)',
+                        cursor: 'pointer',
+                        fontWeight: maxZHeight === preset.height ? 700 : 500,
+                      }}
+                      onClick={() => setMaxZHeight(preset.height)}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Custom Height Input */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span className="cp-field-label">Custom Max Bed Height (Z mm):</span>
+                <input
+                  type="number"
+                  value={maxZHeight || 220}
+                  onChange={(e) => setMaxZHeight(parseFloat(e.target.value) || 220)}
+                  className="cp-number-input"
+                  style={{ width: '100%', textAlign: 'left' }}
+                />
+              </div>
             </div>
           )}
         </div>
@@ -223,6 +258,37 @@ export default function ExportPanel() {
 
             {safeJointParams.enabled && (
               <div className="joint-sliders-container">
+                {/* Clearance Quick Fit Presets */}
+                <div style={{ marginBottom: 8 }}>
+                  <span className="cp-field-label" style={{ fontSize: 10.5 }}>Fit Tolerance Presets:</span>
+                  <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                    {[
+                      { label: '🎯 Tight (0.10mm)', val: 0.10, tip: 'For calibrated direct-drive / SLA' },
+                      { label: '👌 Standard FDM (0.15mm)', val: 0.15, tip: 'Bambu / Prusa standard fit' },
+                      { label: '🧪 Epoxy Gap (0.25mm)', val: 0.25, tip: 'Generous gap for CA glue / 2-part epoxy' },
+                    ].map((tol) => (
+                      <button
+                        key={tol.val}
+                        type="button"
+                        style={{
+                          fontSize: 10,
+                          padding: '3px 6px',
+                          borderRadius: 4,
+                          background: safeJointParams.clearance === tol.val ? 'rgba(56, 189, 248, 0.2)' : 'rgba(255,255,255,0.05)',
+                          border: `1px solid ${safeJointParams.clearance === tol.val ? '#38bdf8' : 'var(--border)'}`,
+                          color: safeJointParams.clearance === tol.val ? '#38bdf8' : 'var(--text-muted)',
+                          cursor: 'pointer',
+                          fontWeight: safeJointParams.clearance === tol.val ? 700 : 500,
+                        }}
+                        onClick={() => updateJointParam('clearance', tol.val)}
+                        title={tol.tip}
+                      >
+                        {tol.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 {/* Wall Offset */}
                 <div className="joint-slider-row">
                   <span className="joint-slider-label">Wall Offset</span>

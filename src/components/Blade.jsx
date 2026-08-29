@@ -33,6 +33,72 @@ const ZebraShaderMaterial = {
   `,
 };
 
+/* ── RGB Surface Normal Vector Diagnostic Shader ── */
+const NormalShaderMaterial = {
+  vertexShader: `
+    varying vec3 vNormal;
+    varying vec3 vWorldPosition;
+    void main() {
+      vNormal = normalize(normalMatrix * normal);
+      vec4 worldPos = modelMatrix * vec4(position, 1.0);
+      vWorldPosition = worldPos.xyz;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    varying vec3 vNormal;
+    varying vec3 vWorldPosition;
+    void main() {
+      vec3 fdx = dFdx(vWorldPosition);
+      vec3 fdy = dFdy(vWorldPosition);
+      vec3 faceNormal = normalize(cross(fdx, fdy));
+      vec3 rgb = faceNormal * 0.5 + 0.5;
+      gl_FragColor = vec4(rgb, 1.0);
+    }
+  `,
+};
+
+/* ── Studio MatCap Clay / CAD Specular Shader ── */
+const MatCapClayShaderMaterial = {
+  vertexShader: `
+    varying vec3 vNormal;
+    varying vec3 vViewPosition;
+    void main() {
+      vNormal = normalize(normalMatrix * normal);
+      vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+      vViewPosition = -mvPosition.xyz;
+      gl_Position = projectionMatrix * mvPosition;
+    }
+  `,
+  fragmentShader: `
+    varying vec3 vNormal;
+    varying vec3 vViewPosition;
+    void main() {
+      vec3 N = normalize(vNormal);
+      vec3 V = normalize(vViewPosition);
+      
+      // Studio 3-point light clay shading
+      vec3 keyLight = normalize(vec3(1.0, 1.2, 1.5));
+      vec3 fillLight = normalize(vec3(-1.0, -0.5, 0.8));
+      
+      float diffKey = max(0.0, dot(N, keyLight));
+      float diffFill = max(0.0, dot(N, fillLight)) * 0.45;
+      float diffRim = pow(1.0 - max(0.0, dot(N, V)), 2.8) * 0.5;
+      
+      // Specular highlight
+      vec3 H = normalize(keyLight + V);
+      float spec = pow(max(0.0, dot(N, H)), 24.0) * 0.4;
+      
+      // Warm CAD studio clay base color
+      vec3 clayColor = vec3(0.85, 0.76, 0.68);
+      vec3 shadowColor = vec3(0.22, 0.20, 0.18);
+      
+      vec3 color = mix(shadowColor, clayColor, diffKey + diffFill) + vec3(spec + diffRim);
+      gl_FragColor = vec4(color, 1.0);
+    }
+  `,
+};
+
 /* ── Piece color palette for sliced / exploded view ── */
 const PIECE_COLORS = [
   '#60a5fa', '#34d399', '#fbbf24', '#f87171', '#a78bfa',
@@ -220,6 +286,9 @@ export default function Blade({
 
   const isAirflowMode = viewMode === 'airflow';
   const isWireframe = viewMode === 'wireframe';
+  const isFaceted = viewMode === 'faceted';
+  const isNormalsMode = viewMode === 'normals';
+  const isClayMode = viewMode === 'clay';
   const isSparMode = showSpar || viewMode === 'spar';
   const isRibsMode = viewMode === 'ribs';
   const isZebraMode = viewMode === 'zebra';
@@ -279,6 +348,29 @@ export default function Blade({
                   uniforms={ZebraShaderMaterial.uniforms}
                   side={THREE.DoubleSide}
                 />
+              ) : isNormalsMode ? (
+                <shaderMaterial
+                  vertexShader={NormalShaderMaterial.vertexShader}
+                  fragmentShader={NormalShaderMaterial.fragmentShader}
+                  side={THREE.DoubleSide}
+                />
+              ) : isClayMode ? (
+                <shaderMaterial
+                  vertexShader={MatCapClayShaderMaterial.vertexShader}
+                  fragmentShader={MatCapClayShaderMaterial.fragmentShader}
+                  side={THREE.DoubleSide}
+                />
+              ) : isFaceted ? (
+                <meshStandardMaterial
+                  color={pieceColor}
+                  flatShading={true}
+                  roughness={0.4}
+                  metalness={0.12}
+                  side={THREE.DoubleSide}
+                  polygonOffset={true}
+                  polygonOffsetFactor={1}
+                  polygonOffsetUnits={1}
+                />
               ) : (
                 <meshPhysicalMaterial
                   color={isAirflowMode ? '#ffffff' : pieceColor}
@@ -295,6 +387,19 @@ export default function Blade({
                 />
               )}
             </mesh>
+
+            {/* Wireframe Overlay on Solid in Faceted Mode */}
+            {isFaceted && (
+              <mesh geometry={part.geo}>
+                <meshBasicMaterial
+                  wireframe={true}
+                  color="#1e293b"
+                  transparent={true}
+                  opacity={0.35}
+                  side={THREE.DoubleSide}
+                />
+              </mesh>
+            )}
 
             {/* Part Label in Exploded View */}
             {isSliced && (
